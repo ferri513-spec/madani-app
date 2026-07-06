@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, GraduationCap, ClipboardCheck, BookOpenCheck,
   FileBarChart2, Settings, LogOut, Search, Plus, Pencil, Trash2, Sun, Moon,
   Menu, X, Download, Printer, CheckCircle2, Clock, Bell, ChevronRight,
-  Upload, Image as ImageIcon, PenTool, User, ShieldCheck, TrendingUp
+  Upload, Image as ImageIcon, PenTool, User, ShieldCheck, TrendingUp, BookOpen, Award
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis,
@@ -148,6 +148,7 @@ export default function MadaniApp() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [role, setRole] = useState("Guru");
   const [profileName, setProfileName] = useState("");
+  const [userId, setUserId] = useState(null);
   const [dark, setDark] = useState(false);
   const [page, setPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -173,6 +174,7 @@ export default function MadaniApp() {
     if (!error && data) {
       setRole(data.role);
       setProfileName(data.nama);
+      setUserId(userId);
       setLoggedIn(true);
     }
   };
@@ -215,6 +217,8 @@ export default function MadaniApp() {
       { key: "siswa", label: "Data Siswa", icon: GraduationCap, roles: ["Super Admin", "Admin"] },
       { key: "absensiGuru", label: "Absensi Guru", icon: ClipboardCheck, roles: ["Super Admin", "Admin", "Guru"] },
       { key: "catatan", label: "Catatan Harian Guru", icon: BookOpenCheck, roles: ["Super Admin", "Admin", "Guru"] },
+      { key: "pembelajaran", label: "Jurnal Pembelajaran", icon: BookOpen, roles: ["Super Admin", "Admin", "Guru"] },
+      { key: "penilaian", label: "Penilaian Mingguan", icon: Award, roles: ["Super Admin", "Admin", "Guru"] },
       { key: "rekap", label: "Rekapan Laporan", icon: FileBarChart2, roles: ["Super Admin", "Admin", "Guru"] },
       { key: "pengaturan", label: "Pengaturan", icon: Settings, roles: ["Super Admin", "Admin"] },
     ];
@@ -308,6 +312,8 @@ export default function MadaniApp() {
           {page === "siswa" && <DataSiswa t={t} siswaList={siswaList} setSiswaList={setSiswaList} flash={flash} />}
           {page === "absensiGuru" && <AbsensiGuru t={t} role={role} profileName={profileName} absensiGuru={absensiGuru} setAbsensiGuru={setAbsensiGuru} checkedIn={checkedIn} setCheckedIn={setCheckedIn} checkInTime={checkInTime} setCheckInTime={setCheckInTime} flash={flash} />}
           {page === "catatan" && <CatatanHarian t={t} siswaList={siswaList} checkedIn={checkedIn} role={role} flash={flash} />}
+          {page === "pembelajaran" && <JurnalPembelajaran t={t} checkedIn={checkedIn} role={role} userId={userId} profileName={profileName} flash={flash} />}
+          {page === "penilaian" && <PenilaianMingguan t={t} checkedIn={checkedIn} role={role} userId={userId} siswaList={siswaList} flash={flash} />}
           {page === "rekap" && <RekapLaporan t={t} flash={flash} />}
           {page === "pengaturan" && <Pengaturan t={t} flash={flash} />}
           {page === "profil" && <Profil t={t} role={role} profileName={profileName} />}
@@ -855,6 +861,297 @@ function CatatanHarian({ t, siswaList, checkedIn, role, flash }) {
         </div>
       )}
     </div>
+  );
+}
+
+/* ---------------------------------- JURNAL PEMBELAJARAN ---------------------------------- */
+function JurnalPembelajaran({ t, checkedIn, role, userId, profileName, flash }) {
+  const [level, setLevel] = useState("Level 1");
+  const [form, setForm] = useState({ materi: "", metode: "", tujuan: "", evaluasi: "" });
+  const [saving, setSaving] = useState(false);
+  const [riwayat, setRiwayat] = useState([]);
+  const [loadingRiwayat, setLoadingRiwayat] = useState(true);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const fetchRiwayat = async () => {
+    setLoadingRiwayat(true);
+    let query = supabase.from("teaching_journal").select("*").order("tanggal", { ascending: false }).limit(10);
+    if (role === "Guru" && userId) query = query.eq("teacher_id", userId);
+    const { data, error } = await query;
+    if (!error && data) setRiwayat(data);
+    setLoadingRiwayat(false);
+  };
+
+  useEffect(() => { fetchRiwayat(); }, [role, userId]);
+
+  if (role === "Guru" && !checkedIn) {
+    return (
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-8 text-center max-w-lg mx-auto`}>
+        <BookOpen size={28} className="mx-auto mb-3 text-red-500" />
+        <p className={`font-semibold ${t.text}`}>Anda belum melakukan absensi</p>
+        <p className={`text-sm ${t.textMuted} mt-1`}>Silakan lakukan Check-In pada menu Absensi Guru terlebih dahulu sebelum mengisi Jurnal Pembelajaran.</p>
+      </div>
+    );
+  }
+
+  const handleSave = async () => {
+    if (!form.materi.trim()) { flash("Materi/Topik wajib diisi", "error"); return; }
+    setSaving(true);
+    const { error } = await supabase.from("teaching_journal").insert({
+      teacher_id: userId,
+      level,
+      tanggal: today,
+      materi: form.materi,
+      metode: form.metode,
+      tujuan: form.tujuan,
+      evaluasi: form.evaluasi,
+    });
+    setSaving(false);
+    if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    flash("Jurnal pembelajaran tersimpan");
+    setForm({ materi: "", metode: "", tujuan: "", evaluasi: "" });
+    fetchRiwayat();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {["Level 1", "Level 2", "Level 3"].map((l) => (
+          <button key={l} onClick={() => setLevel(l)} className={`px-4 py-1.5 rounded-full text-sm font-medium border ${level === l ? "text-white border-transparent" : `${t.text} ${t.border}`}`}
+            style={level === l ? { backgroundColor: EMERALD } : {}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-5 max-w-2xl`}>
+        <p className={`text-xs ${t.textMuted} mb-3`}>Tanggal: {today} · Diisi oleh: {profileName}</p>
+        <Field t={t} label="Materi / Topik yang Diajarkan">
+          <input value={form.materi} onChange={(e) => setForm({ ...form, materi: e.target.value })} placeholder="Contoh: Iqra' Jilid 2 - Huruf Sambung"
+            className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <Field t={t} label="Metode Mengajar">
+          <input value={form.metode} onChange={(e) => setForm({ ...form, metode: e.target.value })} placeholder="Contoh: Talaqqi, drill baca bergantian"
+            className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <Field t={t} label="Tujuan Pembelajaran">
+          <textarea value={form.tujuan} onChange={(e) => setForm({ ...form, tujuan: e.target.value })} rows={2}
+            placeholder="Contoh: Siswa mampu membaca huruf sambung dengan benar" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <Field t={t} label="Evaluasi / Kendala di Kelas">
+          <textarea value={form.evaluasi} onChange={(e) => setForm({ ...form, evaluasi: e.target.value })} rows={2}
+            placeholder="Contoh: 2 siswa masih kesulitan membedakan huruf ba dan ta" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <button onClick={handleSave} disabled={saving} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+          {saving ? "Menyimpan..." : "Simpan Jurnal"}
+        </button>
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+        <p className={`text-sm font-semibold mb-3 ${t.text}`}>Riwayat Jurnal Terbaru</p>
+        {loadingRiwayat ? (
+          <p className={`text-sm ${t.textMuted}`}>Memuat...</p>
+        ) : riwayat.length === 0 ? (
+          <p className={`text-sm ${t.textMuted}`}>Belum ada jurnal tercatat.</p>
+        ) : (
+          <div className="space-y-3">
+            {riwayat.map((r) => (
+              <div key={r.id} className={`border-b ${t.border} last:border-0 pb-3 last:pb-0`}>
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <Badge tone="gray">{r.level}</Badge>
+                  <span className={`text-xs ${t.textMuted}`}>{r.tanggal}</span>
+                </div>
+                <p className={`text-sm font-medium ${t.text}`}>{r.materi}</p>
+                {r.metode && <p className={`text-xs ${t.textMuted}`}>Metode: {r.metode}</p>}
+                {r.evaluasi && <p className={`text-xs ${t.textMuted}`}>Evaluasi: {r.evaluasi}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- PENILAIAN MINGGUAN ---------------------------------- */
+const PREDIKAT_OPTIONS = ["Sangat Baik", "Baik", "Cukup", "Perlu Bimbingan"];
+
+function getWeekStart(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.setDate(diff));
+  return monday.toISOString().slice(0, 10);
+}
+function getWeekEnd(weekStartStr) {
+  const d = new Date(weekStartStr);
+  d.setDate(d.getDate() + 5);
+  return d.toISOString().slice(0, 10);
+}
+
+function PredikatBadge({ value }) {
+  const tone = { "Sangat Baik": "emerald", "Baik": "blue", "Cukup": "amber", "Perlu Bimbingan": "red" }[value] || "gray";
+  return <Badge tone={tone}>{value}</Badge>;
+}
+
+function PenilaianMingguan({ t, checkedIn, role, userId, siswaList, flash }) {
+  const [level, setLevel] = useState("Level 1");
+  const weekStart = getWeekStart();
+  const weekEnd = getWeekEnd(weekStart);
+  const [records, setRecords] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [modalSiswa, setModalSiswa] = useState(null);
+
+  const students = siswaList.filter((s) => s.level === level && s.aktif !== false);
+
+  const fetchRecords = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("weekly_assessment").select("*").eq("level", level).eq("week_start", weekStart);
+    if (!error && data) {
+      const map = {};
+      data.forEach((r) => { map[r.student_id] = r; });
+      setRecords(map);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchRecords(); }, [level]);
+
+  if (role === "Guru" && !checkedIn) {
+    return (
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-8 text-center max-w-lg mx-auto`}>
+        <Award size={28} className="mx-auto mb-3 text-red-500" />
+        <p className={`font-semibold ${t.text}`}>Anda belum melakukan absensi</p>
+        <p className={`text-sm ${t.textMuted} mt-1`}>Silakan lakukan Check-In pada menu Absensi Guru terlebih dahulu sebelum mengisi Penilaian Mingguan.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {["Level 1", "Level 2", "Level 3"].map((l) => (
+            <button key={l} onClick={() => setLevel(l)} className={`px-4 py-1.5 rounded-full text-sm font-medium border ${level === l ? "text-white border-transparent" : `${t.text} ${t.border}`}`}
+              style={level === l ? { backgroundColor: EMERALD } : {}}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <p className={`text-xs ${t.textMuted}`}>Minggu ini: {weekStart} s/d {weekEnd}</p>
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+              <th className="px-4 py-3 font-medium">Nama Siswa</th>
+              <th className="px-4 py-3 font-medium">Tahsin</th>
+              <th className="px-4 py-3 font-medium">Sikap</th>
+              <th className="px-4 py-3 font-medium">Tahfidz</th>
+              <th className="px-4 py-3 font-medium">Pembelajaran</th>
+              <th className="px-4 py-3 font-medium text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={6} className={`px-4 py-8 text-center ${t.textMuted}`}>Memuat...</td></tr>
+            ) : students.length === 0 ? (
+              <tr><td colSpan={6} className={`px-4 py-8 text-center ${t.textMuted}`}>Belum ada siswa di level ini</td></tr>
+            ) : students.map((s) => {
+              const r = records[s.id];
+              return (
+                <tr key={s.id} className={`border-b ${t.border} last:border-0`}>
+                  <td className={`px-4 py-3 ${t.text} font-medium`}>{s.nama}</td>
+                  <td className="px-4 py-3">{r ? <PredikatBadge value={r.nilai_tahsin} /> : <span className={t.textMuted}>-</span>}</td>
+                  <td className="px-4 py-3">{r ? <PredikatBadge value={r.nilai_sikap} /> : <span className={t.textMuted}>-</span>}</td>
+                  <td className="px-4 py-3">{r ? <PredikatBadge value={r.nilai_tahfidz} /> : <span className={t.textMuted}>-</span>}</td>
+                  <td className="px-4 py-3">{r ? <PredikatBadge value={r.nilai_pembelajaran} /> : <span className={t.textMuted}>-</span>}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => setModalSiswa(s)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-white" style={{ backgroundColor: r ? GOLD : EMERALD }}>
+                      {r ? "Edit Nilai" : "Isi Nilai"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {modalSiswa && (
+        <PenilaianModal
+          t={t} siswa={modalSiswa} existing={records[modalSiswa.id]} weekStart={weekStart} level={level} userId={userId}
+          onClose={() => setModalSiswa(null)}
+          onSaved={() => { setModalSiswa(null); fetchRecords(); flash("Penilaian tersimpan"); }}
+          onError={(msg) => flash("Gagal menyimpan: " + msg, "error")}
+        />
+      )}
+    </div>
+  );
+}
+
+function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose, onSaved, onError }) {
+  const [form, setForm] = useState({
+    nilai_tahsin: existing?.nilai_tahsin || "Baik",
+    nilai_sikap: existing?.nilai_sikap || "Baik",
+    nilai_tahfidz: existing?.nilai_tahfidz || "Baik",
+    materi_pembelajaran: existing?.materi_pembelajaran || "",
+    tema_pembelajaran: existing?.tema_pembelajaran || "",
+    nilai_pembelajaran: existing?.nilai_pembelajaran || "Baik",
+    catatan: existing?.catatan || "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const { error } = await supabase.from("weekly_assessment").upsert({
+      student_id: siswa.id, teacher_id: userId, level, week_start: weekStart, ...form,
+    }, { onConflict: "student_id,week_start" });
+    setSaving(false);
+    if (error) { onError(error.message); return; }
+    onSaved();
+  };
+
+  return (
+    <Modal t={t} title={`Penilaian Mingguan — ${siswa.nama}`} onClose={onClose} wide>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Field t={t} label="Nilai Tahsin">
+          <select value={form.nilai_tahsin} onChange={(e) => setForm({ ...form, nilai_tahsin: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            {PREDIKAT_OPTIONS.map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </Field>
+        <Field t={t} label="Nilai Sikap">
+          <select value={form.nilai_sikap} onChange={(e) => setForm({ ...form, nilai_sikap: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            {PREDIKAT_OPTIONS.map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </Field>
+        <Field t={t} label="Nilai Tahfidz">
+          <select value={form.nilai_tahfidz} onChange={(e) => setForm({ ...form, nilai_tahfidz: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            {PREDIKAT_OPTIONS.map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <p className={`text-xs font-semibold mt-2 mb-1 ${t.textMuted}`}>Nilai Pembelajaran</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field t={t} label="Materi"><input value={form.materi_pembelajaran} onChange={(e) => setForm({ ...form, materi_pembelajaran: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+        <Field t={t} label="Tema"><input value={form.tema_pembelajaran} onChange={(e) => setForm({ ...form, tema_pembelajaran: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      </div>
+      <Field t={t} label="Nilai">
+        <select value={form.nilai_pembelajaran} onChange={(e) => setForm({ ...form, nilai_pembelajaran: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+          {PREDIKAT_OPTIONS.map((p) => <option key={p}>{p}</option>)}
+        </select>
+      </Field>
+      <Field t={t} label="Catatan Tambahan (opsional)">
+        <textarea value={form.catatan} onChange={(e) => setForm({ ...form, catatan: e.target.value })} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+      </Field>
+
+      <button onClick={handleSave} disabled={saving} className="w-full mt-2 rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+        {saving ? "Menyimpan..." : "Simpan Penilaian"}
+      </button>
+    </Modal>
   );
 }
 
