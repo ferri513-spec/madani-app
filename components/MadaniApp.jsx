@@ -1,0 +1,1015 @@
+"use client";
+import React, { useState, useMemo, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
+import {
+  LayoutDashboard, Users, GraduationCap, ClipboardCheck, BookOpenCheck,
+  FileBarChart2, Settings, LogOut, Search, Plus, Pencil, Trash2, Sun, Moon,
+  Menu, X, Download, Printer, CheckCircle2, Clock, Bell, ChevronRight,
+  Upload, Image as ImageIcon, PenTool, User, ShieldCheck, TrendingUp
+} from "lucide-react";
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer, Legend
+} from "recharts";
+
+/* ---------------------------------- THEME ---------------------------------- */
+const theme = (dark) => ({
+  bg: dark ? "bg-gray-950" : "bg-gray-50",
+  panel: dark ? "bg-gray-900" : "bg-white",
+  panelAlt: dark ? "bg-gray-800" : "bg-gray-50",
+  border: dark ? "border-gray-800" : "border-gray-200",
+  text: dark ? "text-gray-100" : "text-gray-900",
+  textMuted: dark ? "text-gray-400" : "text-gray-500",
+  hover: dark ? "hover:bg-gray-800" : "hover:bg-gray-100",
+  input: dark ? "bg-gray-800 border-gray-700 text-gray-100" : "bg-white border-gray-300 text-gray-900",
+});
+
+const EMERALD = "#059669";
+const EMERALD_DARK = "#047857";
+const GOLD = "#c9a227";
+
+/* ---------------------------------- MOCK DATA ---------------------------------- */
+const initialGuru = [
+  { id: 1, nama: "Ust. Ahmad Fauzi", nik: "3271010101900001", hp: "081234560001", email: "ahmad.fauzi@madani.sch.id", alamat: "Depok, Jawa Barat", username: "ahmadfauzi", role: "Guru", aktif: true },
+  { id: 2, nama: "Ustzh. Siti Nurhaliza", nik: "3271010101920002", hp: "081234560002", email: "siti.n@madani.sch.id", alamat: "Depok, Jawa Barat", username: "sitin", role: "Guru", aktif: true },
+  { id: 3, nama: "Ust. Rizky Ramadhan", nik: "3271010101930003", hp: "081234560003", email: "rizky.r@madani.sch.id", alamat: "Cimanggis, Depok", username: "rizkyr", role: "Guru", aktif: true },
+  { id: 4, nama: "Ustzh. Dewi Lestari", nik: "3271010101940004", hp: "081234560004", email: "dewi.l@madani.sch.id", alamat: "Sawangan, Depok", username: "dewil", role: "Admin", aktif: true },
+  { id: 5, nama: "Ust. Hasan Albana", nik: "3271010101950005", hp: "081234560005", email: "hasan.a@madani.sch.id", alamat: "Beji, Depok", username: "hasana", role: "Guru", aktif: false },
+];
+
+const initialSiswa = [
+  { id: 1, nama: "Ahmad Zaki", nis: "S001", jk: "L", level: "Level 1", ortu: "Bpk. Wahyu", hpOrtu: "081211110001", aktif: true },
+  { id: 2, nama: "Fatimah Az-Zahra", nis: "S002", jk: "P", level: "Level 1", ortu: "Bpk. Ridwan", hpOrtu: "081211110002", aktif: true },
+  { id: 3, nama: "Umar Faruq", nis: "S003", jk: "L", level: "Level 2", ortu: "Bpk. Slamet", hpOrtu: "081211110003", aktif: true },
+  { id: 4, nama: "Khadijah Putri", nis: "S004", jk: "P", level: "Level 2", ortu: "Ibu Ratna", hpOrtu: "081211110004", aktif: true },
+  { id: 5, nama: "Ali Ridho", nis: "S005", jk: "L", level: "Level 3", ortu: "Bpk. Hendra", hpOrtu: "081211110005", aktif: true },
+  { id: 6, nama: "Aisyah Nur", nis: "S006", jk: "P", level: "Level 3", ortu: "Ibu Siti", hpOrtu: "081211110006", aktif: true },
+  { id: 7, nama: "Yusuf Al-Amin", nis: "S007", jk: "L", level: "Level 1", ortu: "Bpk. Agus", hpOrtu: "081211110007", aktif: true },
+  { id: 8, nama: "Maryam Salsabila", nis: "S008", jk: "P", level: "Level 2", ortu: "Bpk. Dedi", hpOrtu: "081211110008", aktif: true },
+];
+
+const initialAbsensiGuru = [
+  { id: 1, guru: "Ust. Ahmad Fauzi", tanggal: "2026-07-03", masuk: "15:32", pulang: "17:35", status: "Hadir" },
+  { id: 2, guru: "Ustzh. Siti Nurhaliza", tanggal: "2026-07-03", masuk: "15:28", pulang: "17:30", status: "Hadir" },
+  { id: 3, guru: "Ust. Rizky Ramadhan", tanggal: "2026-07-03", masuk: "15:52", pulang: "17:40", status: "Terlambat" },
+  { id: 4, guru: "Ustzh. Dewi Lestari", tanggal: "2026-07-03", masuk: "-", pulang: "-", status: "Izin" },
+];
+
+const weeklyAttendance = [
+  { hari: "Sen", guru: 92, siswa: 88 },
+  { hari: "Sel", guru: 95, siswa: 90 },
+  { hari: "Rab", guru: 88, siswa: 85 },
+  { hari: "Kam", guru: 97, siswa: 93 },
+  { hari: "Jum", guru: 90, siswa: 87 },
+  { hari: "Sab", guru: 94, siswa: 91 },
+];
+
+const hafalanStatus = [
+  { name: "Lancar", value: 62, color: EMERALD },
+  { name: "Mengulang", value: 24, color: GOLD },
+  { name: "Belum", value: 14, color: "#9ca3af" },
+];
+
+const roster = {
+  "Super Admin": { name: "Admin Utama", icon: ShieldCheck },
+  "Admin": { name: "Ustzh. Dewi Lestari", icon: User },
+  "Guru": { name: "Ust. Ahmad Fauzi", icon: GraduationCap },
+};
+
+/* ---------------------------------- SMALL UI PARTS ---------------------------------- */
+function StatCard({ t, label, value, icon: Icon, accent }) {
+  return (
+    <div className={`rounded-xl border ${t.border} ${t.panel} p-4 flex items-center gap-3 shadow-sm`}>
+      <div className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0"
+        style={{ backgroundColor: accent + "1a", color: accent }}>
+        <Icon size={20} />
+      </div>
+      <div className="min-w-0">
+        <p className={`text-xs ${t.textMuted} truncate`}>{label}</p>
+        <p className={`text-xl font-semibold ${t.text}`}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function Badge({ children, tone = "emerald" }) {
+  const tones = {
+    emerald: "bg-emerald-100 text-emerald-700",
+    amber: "bg-amber-100 text-amber-700",
+    red: "bg-red-100 text-red-700",
+    gray: "bg-gray-100 text-gray-600",
+    blue: "bg-blue-100 text-blue-700",
+  };
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${tones[tone]}`}>{children}</span>;
+}
+
+function StatusBadge({ status }) {
+  const map = { Hadir: "emerald", Terlambat: "amber", Izin: "blue", Sakit: "gray", Alpha: "red", Lancar: "emerald", Mengulang: "amber", Belum: "gray" };
+  return <Badge tone={map[status] || "gray"}>{status}</Badge>;
+}
+
+function Modal({ t, title, onClose, children, wide }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+      <div className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-xl ${t.panel} border ${t.border} shadow-xl max-h-[90vh] overflow-y-auto`}>
+        <div className={`flex items-center justify-between px-5 py-4 border-b ${t.border}`}>
+          <h3 className={`font-semibold ${t.text}`}>{title}</h3>
+          <button onClick={onClose} className={`p-1 rounded-md ${t.hover}`}><X size={18} className={t.textMuted} /></button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ t, label, children }) {
+  return (
+    <div className="mb-3">
+      <label className={`block text-xs font-medium mb-1 ${t.textMuted}`}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Toast({ msg, tone }) {
+  if (!msg) return null;
+  return (
+    <div className="fixed bottom-5 right-5 z-[60] animate-pulse">
+      <div className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white ${tone === "error" ? "bg-red-600" : "bg-emerald-600"} flex items-center gap-2`}>
+        <CheckCircle2 size={16} /> {msg}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- MAIN APP ---------------------------------- */
+export default function MadaniApp() {
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [role, setRole] = useState("Guru");
+  const [profileName, setProfileName] = useState("");
+  const [dark, setDark] = useState(false);
+  const [page, setPage] = useState("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const t = theme(dark);
+  const flash = (msg, tone = "ok") => { setToast({ msg, tone }); setTimeout(() => setToast(null), 2200); };
+
+  /* ---- cek sesi login yang sudah ada saat halaman dibuka/di-refresh ---- */
+  useEffect(() => {
+    const loadSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await loadProfile(session.user.id);
+      }
+      setCheckingSession(false);
+    };
+    loadSession();
+  }, []);
+
+  const loadProfile = async (userId) => {
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    if (!error && data) {
+      setRole(data.role);
+      setProfileName(data.nama);
+      setLoggedIn(true);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setLoggedIn(false);
+    setPage("dashboard");
+  };
+
+  /* ---- data state ---- */
+  const [guruList, setGuruList] = useState(initialGuru);
+  const [siswaList, setSiswaList] = useState([]);
+  const [siswaLoading, setSiswaLoading] = useState(true);
+  const [absensiGuru, setAbsensiGuru] = useState(initialAbsensiGuru);
+  const [checkedIn, setCheckedIn] = useState(false);
+  const [checkInTime, setCheckInTime] = useState(null);
+
+  /* ---- ambil data siswa dari database sungguhan setelah login ---- */
+  useEffect(() => {
+    if (!loggedIn) return;
+    const fetchSiswa = async () => {
+      setSiswaLoading(true);
+      const { data, error } = await supabase.from("students").select("*").order("id");
+      if (!error && data) {
+        setSiswaList(data.map((s) => ({
+          id: s.id, nama: s.nama, nis: s.nis, jk: s.jenis_kelamin,
+          level: s.level, ortu: s.nama_ortu, hpOrtu: s.hp_ortu, aktif: s.aktif,
+        })));
+      }
+      setSiswaLoading(false);
+    };
+    fetchSiswa();
+  }, [loggedIn]);
+
+  const navItems = useMemo(() => {
+    const all = [
+      { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["Super Admin", "Admin", "Guru"] },
+      { key: "guru", label: "Data Guru", icon: Users, roles: ["Super Admin", "Admin"] },
+      { key: "siswa", label: "Data Siswa", icon: GraduationCap, roles: ["Super Admin", "Admin"] },
+      { key: "absensiGuru", label: "Absensi Guru", icon: ClipboardCheck, roles: ["Super Admin", "Admin", "Guru"] },
+      { key: "catatan", label: "Catatan Harian Guru", icon: BookOpenCheck, roles: ["Super Admin", "Admin", "Guru"] },
+      { key: "rekap", label: "Rekapan Laporan", icon: FileBarChart2, roles: ["Super Admin", "Admin", "Guru"] },
+      { key: "pengaturan", label: "Pengaturan", icon: Settings, roles: ["Super Admin", "Admin"] },
+    ];
+    return all.filter((i) => i.roles.includes(role));
+  }, [role]);
+
+  if (checkingSession) {
+    return (
+      <div className={`min-h-[700px] w-full ${t.bg} flex items-center justify-center`}>
+        <p className={`text-sm ${t.textMuted}`}>Memuat...</p>
+      </div>
+    );
+  }
+
+  if (!loggedIn) {
+    return <LoginScreen t={t} dark={dark} setDark={setDark} onLoginSuccess={loadProfile} />;
+  }
+
+  return (
+    <div className={`min-h-[700px] w-full ${t.bg} flex font-sans`}>
+      {/* SIDEBAR */}
+      <aside className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed md:static z-40 h-full w-64 ${t.panel} border-r ${t.border} flex flex-col transition-transform duration-200`}>
+        <div className={`flex items-center gap-2 px-5 py-5 border-b ${t.border}`}>
+          <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white font-bold" style={{ backgroundColor: EMERALD }}>MSM</div>
+          <div>
+            <p className={`font-semibold text-sm ${t.text}`}>Madrasah Sore</p>
+            <p className="text-xs" style={{ color: GOLD }}>MADANI</p>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="md:hidden ml-auto"><X size={18} className={t.textMuted} /></button>
+        </div>
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = page === item.key;
+            return (
+              <button key={item.key} onClick={() => { setPage(item.key); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${active ? "text-white" : `${t.text} ${t.hover}`}`}
+                style={active ? { backgroundColor: EMERALD } : {}}>
+                <Icon size={17} /> {item.label}
+              </button>
+            );
+          })}
+        </nav>
+        <div className={`px-3 py-4 border-t ${t.border} space-y-1`}>
+          <button onClick={() => setPage("profil")} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${t.text} ${t.hover}`}>
+            <User size={17} /> Profil
+          </button>
+          <button onClick={handleLogout} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50`}>
+            <LogOut size={17} /> Logout
+          </button>
+        </div>
+      </aside>
+
+      {sidebarOpen && <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />}
+
+      {/* MAIN */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* TOPBAR */}
+        <header className={`h-16 ${t.panel} border-b ${t.border} flex items-center justify-between px-4 md:px-6 sticky top-0 z-20`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={() => setSidebarOpen(true)} className="md:hidden"><Menu size={20} className={t.text} /></button>
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${t.text} truncate`}>{navItems.find(n => n.key === page)?.label || "Profil"}</p>
+              <p className={`text-xs ${t.textMuted} hidden sm:block`}>Tahun Ajaran 2025/2026 · Semester Genap</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
+            <button onClick={() => setDark(!dark)} className={`p-2 rounded-lg ${t.hover}`}>
+              {dark ? <Sun size={18} className="text-amber-400" /> : <Moon size={18} className={t.textMuted} />}
+            </button>
+            <button className={`p-2 rounded-lg ${t.hover} relative`}>
+              <Bell size={18} className={t.textMuted} />
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
+            </button>
+            <div className="flex items-center gap-2 pl-2 border-l ml-1" style={{ borderColor: dark ? "#374151" : "#e5e7eb" }}>
+              <div className="h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-semibold" style={{ backgroundColor: EMERALD }}>
+                {(profileName || role).split(" ").map(w => w[0]).slice(0, 2).join("")}
+              </div>
+              <div className="hidden sm:block">
+                <p className={`text-xs font-medium ${t.text}`}>{profileName}</p>
+                <p className={`text-[11px] ${t.textMuted}`}>{role}</p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* CONTENT */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          {page === "dashboard" && <Dashboard t={t} role={role} guruList={guruList} siswaList={siswaList} />}
+          {page === "guru" && <DataGuru t={t} guruList={guruList} setGuruList={setGuruList} flash={flash} />}
+          {page === "siswa" && <DataSiswa t={t} siswaList={siswaList} setSiswaList={setSiswaList} flash={flash} />}
+          {page === "absensiGuru" && <AbsensiGuru t={t} role={role} profileName={profileName} absensiGuru={absensiGuru} setAbsensiGuru={setAbsensiGuru} checkedIn={checkedIn} setCheckedIn={setCheckedIn} checkInTime={checkInTime} setCheckInTime={setCheckInTime} flash={flash} />}
+          {page === "catatan" && <CatatanHarian t={t} siswaList={siswaList} checkedIn={checkedIn} role={role} flash={flash} />}
+          {page === "rekap" && <RekapLaporan t={t} flash={flash} />}
+          {page === "pengaturan" && <Pengaturan t={t} flash={flash} />}
+          {page === "profil" && <Profil t={t} role={role} profileName={profileName} />}
+        </main>
+      </div>
+      <Toast msg={toast?.msg} tone={toast?.tone} />
+    </div>
+  );
+}
+
+/* ---------------------------------- LOGIN ---------------------------------- */
+function LoginScreen({ t, dark, setDark, onLoginSuccess }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    setErrorMsg("");
+    if (!email || !password) { setErrorMsg("Email dan password wajib diisi."); return; }
+    setLoading(true);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setErrorMsg("Email atau password salah. Coba lagi.");
+      setLoading(false);
+      return;
+    }
+    await onLoginSuccess(data.user.id);
+    setLoading(false);
+  };
+
+  return (
+    <div className={`min-h-[700px] w-full ${t.bg} flex items-center justify-center p-4 relative`}>
+      <button onClick={() => setDark(!dark)} className={`absolute top-4 right-4 p-2 rounded-lg ${t.panel} border ${t.border}`}>
+        {dark ? <Sun size={18} className="text-amber-400" /> : <Moon size={18} className={t.textMuted} />}
+      </button>
+      <div className={`w-full max-w-sm rounded-2xl ${t.panel} border ${t.border} shadow-xl p-8`}>
+        <div className="flex flex-col items-center mb-6">
+          <div className="h-14 w-14 rounded-xl flex items-center justify-center text-white text-xl font-bold mb-3" style={{ backgroundColor: EMERALD }}>MSM</div>
+          <h1 className={`text-lg font-semibold ${t.text}`}>Madrasah Sore Madani</h1>
+          <p className={`text-xs ${t.textMuted}`}>Sistem Manajemen Madrasah</p>
+        </div>
+        <Field t={t} label="Email">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nama@madani.app"
+            className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
+        </Field>
+        <Field t={t} label="Password">
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
+            className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
+        </Field>
+        {errorMsg && <p className="text-xs text-red-500 mb-2">{errorMsg}</p>}
+        <button onClick={handleLogin} disabled={loading} className="w-full mt-2 rounded-lg py-2.5 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90 disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+          {loading ? "Memproses..." : "Masuk"}
+        </button>
+        <p className={`text-[11px] text-center mt-4 ${t.textMuted}`}>Gunakan akun yang sudah didaftarkan di Supabase Authentication</p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- DASHBOARD ---------------------------------- */
+function Dashboard({ t, role, guruList, siswaList }) {
+  const countByLevel = (lvl) => siswaList.filter((s) => s.level === lvl && s.aktif).length;
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard t={t} label="Jumlah Guru" value={guruList.filter(g => g.aktif).length} icon={Users} accent={EMERALD} />
+        <StatCard t={t} label="Siswa Level 1" value={countByLevel("Level 1")} icon={GraduationCap} accent={GOLD} />
+        <StatCard t={t} label="Siswa Level 2" value={countByLevel("Level 2")} icon={GraduationCap} accent={GOLD} />
+        <StatCard t={t} label="Siswa Level 3" value={countByLevel("Level 3")} icon={GraduationCap} accent={GOLD} />
+        <StatCard t={t} label="Guru Hadir Hari Ini" value="3 / 4" icon={CheckCircle2} accent={EMERALD} />
+        <StatCard t={t} label="Guru Tidak Hadir" value="1" icon={Clock} accent="#ef4444" />
+        <StatCard t={t} label="Siswa Hadir Hari Ini" value="26 / 30" icon={CheckCircle2} accent={EMERALD} />
+        <StatCard t={t} label="Progress Hafalan" value="62%" icon={TrendingUp} accent={GOLD} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className={`lg:col-span-2 rounded-xl border ${t.border} ${t.panel} p-4`}>
+          <p className={`text-sm font-semibold mb-3 ${t.text}`}>Grafik Kehadiran Mingguan (%)</p>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={weeklyAttendance}>
+              <CartesianGrid strokeDasharray="3 3" stroke={t.border.includes("800") ? "#1f2937" : "#e5e7eb"} />
+              <XAxis dataKey="hari" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="guru" name="Guru" fill={EMERALD} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="siswa" name="Siswa" fill={GOLD} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+          <p className={`text-sm font-semibold mb-3 ${t.text}`}>Progress Hafalan</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie data={hafalanStatus} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={3}>
+                {hafalanStatus.map((e, i) => <Cell key={i} fill={e.color} />)}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex justify-center gap-3 mt-1 flex-wrap">
+            {hafalanStatus.map((s) => (
+              <div key={s.name} className="flex items-center gap-1.5 text-xs">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} /> <span className={t.textMuted}>{s.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+        <p className={`text-sm font-semibold mb-3 ${t.text}`}>Aktivitas Terbaru</p>
+        <ul className="space-y-3">
+          {[
+            { who: "Ust. Ahmad Fauzi", what: "melakukan check-in absensi", when: "15:32" },
+            { who: "Ustzh. Siti Nurhaliza", what: "mengisi Catatan Harian Level 1", when: "16:10" },
+            { who: "Ust. Rizky Ramadhan", what: "mengisi progress hafalan Umar Faruq", when: "16:22" },
+          ].map((a, i) => (
+            <li key={i} className="flex items-center gap-3 text-sm">
+              <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: EMERALD }} />
+              <span className={t.text}><b>{a.who}</b> {a.what}</span>
+              <span className={`ml-auto text-xs ${t.textMuted}`}>{a.when}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- DATA GURU ---------------------------------- */
+function DataGuru({ t, guruList, setGuruList, flash }) {
+  const [q, setQ] = useState("");
+  const [modal, setModal] = useState(null); // {mode, data}
+  const [pg, setPg] = useState(1);
+  const perPage = 5;
+
+  const filtered = guruList.filter((g) => g.nama.toLowerCase().includes(q.toLowerCase()) || g.nik.includes(q));
+  const paged = filtered.slice((pg - 1) * perPage, pg * perPage);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+
+  const save = (form) => {
+    if (modal.mode === "add") {
+      setGuruList([...guruList, { ...form, id: Date.now(), aktif: true }]);
+      flash("Data guru berhasil ditambahkan");
+    } else {
+      setGuruList(guruList.map((g) => (g.id === modal.data.id ? { ...g, ...form } : g)));
+      flash("Data guru berhasil diperbarui");
+    }
+    setModal(null);
+  };
+  const remove = (id) => { setGuruList(guruList.filter((g) => g.id !== id)); flash("Data guru dihapus", "error"); };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+        <div className={`flex items-center gap-2 rounded-lg border ${t.border} ${t.input} px-3 py-2 w-full sm:w-72`}>
+          <Search size={16} className={t.textMuted} />
+          <input value={q} onChange={(e) => { setQ(e.target.value); setPg(1); }} placeholder="Cari nama atau NIK..." className="bg-transparent outline-none text-sm w-full" />
+        </div>
+        <button onClick={() => setModal({ mode: "add", data: { nama: "", nik: "", hp: "", email: "", alamat: "", username: "", role: "Guru" } })}
+          className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shrink-0" style={{ backgroundColor: EMERALD }}>
+          <Plus size={16} /> Tambah Guru
+        </button>
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+              <th className="px-4 py-3 font-medium">Nama</th>
+              <th className="px-4 py-3 font-medium">NIK</th>
+              <th className="px-4 py-3 font-medium">No HP</th>
+              <th className="px-4 py-3 font-medium">Role</th>
+              <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paged.map((g) => (
+              <tr key={g.id} className={`border-b ${t.border} last:border-0`}>
+                <td className={`px-4 py-3 ${t.text} font-medium`}>{g.nama}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{g.nik}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{g.hp}</td>
+                <td className="px-4 py-3"><Badge tone="blue">{g.role}</Badge></td>
+                <td className="px-4 py-3">{g.aktif ? <Badge tone="emerald">Aktif</Badge> : <Badge tone="gray">Nonaktif</Badge>}</td>
+                <td className="px-4 py-3">
+                  <div className="flex justify-end gap-1">
+                    <button onClick={() => setModal({ mode: "edit", data: g })} className={`p-1.5 rounded-md ${t.hover}`}><Pencil size={14} className={t.textMuted} /></button>
+                    <button onClick={() => remove(g.id)} className={`p-1.5 rounded-md ${t.hover}`}><Trash2 size={14} className="text-red-500" /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {paged.length === 0 && <tr><td colSpan={6} className={`px-4 py-8 text-center ${t.textMuted}`}>Tidak ada data ditemukan</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <Pagination t={t} pg={pg} setPg={setPg} totalPages={totalPages} total={filtered.length} />
+
+      {modal && (
+        <GuruModal t={t} modal={modal} onClose={() => setModal(null)} onSave={save} />
+      )}
+    </div>
+  );
+}
+
+function GuruModal({ t, modal, onClose, onSave }) {
+  const [form, setForm] = useState(modal.data);
+  return (
+    <Modal t={t} title={modal.mode === "add" ? "Tambah Data Guru" : "Edit Data Guru"} onClose={onClose}>
+      <Field t={t} label="Nama Lengkap"><input value={form.nama} onChange={(e) => setForm({ ...form, nama: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <Field t={t} label="NIK"><input value={form.nik} onChange={(e) => setForm({ ...form, nik: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <Field t={t} label="No HP"><input value={form.hp} onChange={(e) => setForm({ ...form, hp: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <Field t={t} label="Email"><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <Field t={t} label="Role">
+        <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+          <option>Guru</option><option>Admin</option><option>Super Admin</option>
+        </select>
+      </Field>
+      <button onClick={() => onSave(form)} className="w-full mt-2 rounded-lg py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan</button>
+    </Modal>
+  );
+}
+
+/* ---------------------------------- DATA SISWA ---------------------------------- */
+function DataSiswa({ t, siswaList, setSiswaList, flash }) {
+  const [q, setQ] = useState("");
+  const [levelFilter, setLevelFilter] = useState("Semua");
+  const [modal, setModal] = useState(null);
+  const [pg, setPg] = useState(1);
+  const perPage = 5;
+
+  const filtered = siswaList.filter((s) =>
+    (s.nama.toLowerCase().includes(q.toLowerCase()) || s.nis.includes(q)) &&
+    (levelFilter === "Semua" || s.level === levelFilter)
+  );
+  const paged = filtered.slice((pg - 1) * perPage, pg * perPage);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+
+  const save = async (form) => {
+    if (modal.mode === "add") {
+      const { data, error } = await supabase.from("students").insert({
+        nama: form.nama, nis: form.nis, jenis_kelamin: form.jk,
+        level: form.level, nama_ortu: form.ortu, hp_ortu: form.hpOrtu, aktif: true,
+      }).select().single();
+      if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+      setSiswaList([...siswaList, { id: data.id, nama: data.nama, nis: data.nis, jk: data.jenis_kelamin, level: data.level, ortu: data.nama_ortu, hpOrtu: data.hp_ortu, aktif: data.aktif }]);
+      flash("Data siswa ditambahkan");
+    } else {
+      const { error } = await supabase.from("students").update({
+        nama: form.nama, nis: form.nis, jenis_kelamin: form.jk,
+        level: form.level, nama_ortu: form.ortu, hp_ortu: form.hpOrtu,
+      }).eq("id", modal.data.id);
+      if (error) { flash("Gagal memperbarui: " + error.message, "error"); return; }
+      setSiswaList(siswaList.map((s) => (s.id === modal.data.id ? { ...s, ...form } : s)));
+      flash("Data siswa diperbarui");
+    }
+    setModal(null);
+  };
+  const remove = async (id) => {
+    const { error } = await supabase.from("students").delete().eq("id", id);
+    if (error) { flash("Gagal menghapus: " + error.message, "error"); return; }
+    setSiswaList(siswaList.filter((s) => s.id !== id));
+    flash("Data siswa dihapus", "error");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className={`flex items-center gap-2 rounded-lg border ${t.border} ${t.input} px-3 py-2 w-full sm:w-64`}>
+            <Search size={16} className={t.textMuted} />
+            <input value={q} onChange={(e) => { setQ(e.target.value); setPg(1); }} placeholder="Cari nama atau NIS..." className="bg-transparent outline-none text-sm w-full" />
+          </div>
+          <select value={levelFilter} onChange={(e) => { setLevelFilter(e.target.value); setPg(1); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            <option>Semua</option><option>Level 1</option><option>Level 2</option><option>Level 3</option>
+          </select>
+        </div>
+        <button onClick={() => setModal({ mode: "add", data: { nama: "", nis: "", jk: "L", level: "Level 1", ortu: "", hpOrtu: "" } })}
+          className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shrink-0" style={{ backgroundColor: EMERALD }}>
+          <Plus size={16} /> Tambah Siswa
+        </button>
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+              <th className="px-4 py-3 font-medium">Nama</th>
+              <th className="px-4 py-3 font-medium">NIS</th>
+              <th className="px-4 py-3 font-medium">JK</th>
+              <th className="px-4 py-3 font-medium">Level</th>
+              <th className="px-4 py-3 font-medium">Orang Tua</th>
+              <th className="px-4 py-3 font-medium text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paged.map((s) => (
+              <tr key={s.id} className={`border-b ${t.border} last:border-0`}>
+                <td className={`px-4 py-3 ${t.text} font-medium`}>{s.nama}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{s.nis}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{s.jk}</td>
+                <td className="px-4 py-3"><Badge tone="gray">{s.level}</Badge></td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{s.ortu}</td>
+                <td className="px-4 py-3">
+                  <div className="flex justify-end gap-1">
+                    <button onClick={() => setModal({ mode: "edit", data: s })} className={`p-1.5 rounded-md ${t.hover}`}><Pencil size={14} className={t.textMuted} /></button>
+                    <button onClick={() => remove(s.id)} className={`p-1.5 rounded-md ${t.hover}`}><Trash2 size={14} className="text-red-500" /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {paged.length === 0 && <tr><td colSpan={6} className={`px-4 py-8 text-center ${t.textMuted}`}>Tidak ada data ditemukan</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <Pagination t={t} pg={pg} setPg={setPg} totalPages={totalPages} total={filtered.length} />
+
+      {modal && <SiswaModal t={t} modal={modal} onClose={() => setModal(null)} onSave={save} />}
+    </div>
+  );
+}
+
+function SiswaModal({ t, modal, onClose, onSave }) {
+  const [form, setForm] = useState(modal.data);
+  return (
+    <Modal t={t} title={modal.mode === "add" ? "Tambah Data Siswa" : "Edit Data Siswa"} onClose={onClose}>
+      <Field t={t} label="Nama Lengkap"><input value={form.nama} onChange={(e) => setForm({ ...form, nama: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <Field t={t} label="NIS"><input value={form.nis} onChange={(e) => setForm({ ...form, nis: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field t={t} label="Jenis Kelamin">
+          <select value={form.jk} onChange={(e) => setForm({ ...form, jk: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            <option value="L">Laki-laki</option><option value="P">Perempuan</option>
+          </select>
+        </Field>
+        <Field t={t} label="Level">
+          <select value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            <option>Level 1</option><option>Level 2</option><option>Level 3</option>
+          </select>
+        </Field>
+      </div>
+      <Field t={t} label="Nama Orang Tua"><input value={form.ortu} onChange={(e) => setForm({ ...form, ortu: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <Field t={t} label="No HP Orang Tua"><input value={form.hpOrtu} onChange={(e) => setForm({ ...form, hpOrtu: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <button onClick={() => onSave(form)} className="w-full mt-2 rounded-lg py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan</button>
+    </Modal>
+  );
+}
+
+/* ---------------------------------- ABSENSI GURU ---------------------------------- */
+function AbsensiGuru({ t, role, profileName, absensiGuru, setAbsensiGuru, checkedIn, setCheckedIn, checkInTime, setCheckInTime, flash }) {
+  const now = () => new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+
+  const handleCheckIn = () => {
+    const time = now();
+    setCheckedIn(true); setCheckInTime(time);
+    setAbsensiGuru([{ id: Date.now(), guru: profileName, tanggal: "2026-07-03", masuk: time, pulang: "-", status: time > "15:45" ? "Terlambat" : "Hadir" }, ...absensiGuru]);
+    flash("Check-in berhasil dicatat");
+  };
+  const handleCheckOut = () => {
+    const time = now();
+    setAbsensiGuru(absensiGuru.map((a) => (a.guru === profileName && a.pulang === "-" ? { ...a, pulang: time } : a)));
+    flash("Check-out berhasil dicatat");
+  };
+
+  if (role === "Guru") {
+    return (
+      <div className="space-y-5">
+        <div className={`rounded-xl border ${t.border} ${t.panel} p-6 text-center max-w-md mx-auto`}>
+          <Clock size={28} className="mx-auto mb-2" style={{ color: EMERALD }} />
+          <p className={`text-sm ${t.textMuted}`}>Kamis, 3 Juli 2026</p>
+          <p className={`text-3xl font-semibold my-2 ${t.text}`}>{checkInTime || "--:--"}</p>
+          <p className={`text-xs ${t.textMuted} mb-4`}>{checkedIn ? "Anda sudah check-in hari ini" : "Anda belum melakukan absensi hari ini"}</p>
+          {!checkedIn ? (
+            <button onClick={handleCheckIn} className="w-full rounded-lg py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Check-In Sekarang</button>
+          ) : (
+            <button onClick={handleCheckOut} className="w-full rounded-lg py-2.5 text-sm font-semibold text-white bg-amber-500">Check-Out</button>
+          )}
+          {!checkedIn && <p className="text-[11px] text-red-500 mt-3">Catatan Harian belum bisa diisi sebelum Anda check-in.</p>}
+        </div>
+        <RiwayatTable t={t} data={absensiGuru.filter((a) => a.guru === profileName)} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className={`text-sm ${t.textMuted}`}>Rekap absensi seluruh guru hari ini.</p>
+      <RiwayatTable t={t} data={absensiGuru} showName />
+    </div>
+  );
+}
+
+function RiwayatTable({ t, data, showName }) {
+  return (
+    <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+            {showName && <th className="px-4 py-3 font-medium">Nama Guru</th>}
+            <th className="px-4 py-3 font-medium">Tanggal</th>
+            <th className="px-4 py-3 font-medium">Jam Masuk</th>
+            <th className="px-4 py-3 font-medium">Jam Pulang</th>
+            <th className="px-4 py-3 font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((a) => (
+            <tr key={a.id} className={`border-b ${t.border} last:border-0`}>
+              {showName && <td className={`px-4 py-3 ${t.text} font-medium`}>{a.guru}</td>}
+              <td className={`px-4 py-3 ${t.textMuted}`}>{a.tanggal}</td>
+              <td className={`px-4 py-3 ${t.textMuted}`}>{a.masuk}</td>
+              <td className={`px-4 py-3 ${t.textMuted}`}>{a.pulang}</td>
+              <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
+            </tr>
+          ))}
+          {data.length === 0 && <tr><td colSpan={5} className={`px-4 py-8 text-center ${t.textMuted}`}>Belum ada riwayat</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ---------------------------------- CATATAN HARIAN ---------------------------------- */
+function CatatanHarian({ t, siswaList, checkedIn, role, flash }) {
+  const [level, setLevel] = useState("Level 1");
+  const [tab, setTab] = useState("absensi");
+  const [absensi, setAbsensi] = useState({});
+  const [hafalan, setHafalan] = useState({ juz: "", surah: "", halaman: "", ayat: "", status: "Lancar", catatan: "" });
+  const [tahsin, setTahsin] = useState({ siswa: "", jilid: "", halaman: "", status: "Lancar", catatan: "" });
+
+  const students = siswaList.filter((s) => s.level === level);
+
+  if (role === "Guru" && !checkedIn) {
+    return (
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-8 text-center max-w-lg mx-auto`}>
+        <ClipboardCheck size={28} className="mx-auto mb-3 text-red-500" />
+        <p className={`font-semibold ${t.text}`}>Anda belum melakukan absensi</p>
+        <p className={`text-sm ${t.textMuted} mt-1`}>Silakan lakukan Check-In pada menu Absensi Guru terlebih dahulu sebelum mengisi Catatan Harian.</p>
+      </div>
+    );
+  }
+
+  const tabs = [
+    { key: "absensi", label: "Absensi Siswa" },
+    { key: "tahsin", label: "Mutaba'ah Tahsin" },
+    { key: "hafalan", label: "Progress Hafalan" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {["Level 1", "Level 2", "Level 3"].map((l) => (
+          <button key={l} onClick={() => setLevel(l)} className={`px-4 py-1.5 rounded-full text-sm font-medium border ${level === l ? "text-white border-transparent" : `${t.text} ${t.border}`}`}
+            style={level === l ? { backgroundColor: EMERALD } : {}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      <div className={`flex gap-1 border-b ${t.border}`}>
+        {tabs.map((tb) => (
+          <button key={tb.key} onClick={() => setTab(tb.key)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === tb.key ? "border-current" : "border-transparent " + t.textMuted}`}
+            style={tab === tb.key ? { color: EMERALD } : {}}>
+            {tb.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "absensi" && (
+        <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+                <th className="px-4 py-3 font-medium">Nama Siswa</th>
+                <th className="px-4 py-3 font-medium">NIS</th>
+                <th className="px-4 py-3 font-medium">Status Kehadiran</th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((s) => (
+                <tr key={s.id} className={`border-b ${t.border} last:border-0`}>
+                  <td className={`px-4 py-3 ${t.text} font-medium`}>{s.nama}</td>
+                  <td className={`px-4 py-3 ${t.textMuted}`}>{s.nis}</td>
+                  <td className="px-4 py-3">
+                    <select value={absensi[s.id] || "Hadir"} onChange={(e) => setAbsensi({ ...absensi, [s.id]: e.target.value })}
+                      className={`rounded-lg border px-2 py-1 text-xs ${t.input}`}>
+                      <option>Hadir</option><option>Izin</option><option>Sakit</option><option>Alpha</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="p-3 border-t flex justify-end" style={{ borderColor: t.border.includes("800") ? "#1f2937" : "#e5e7eb" }}>
+            <button onClick={() => flash("Absensi siswa tersimpan (auto-save)")} className="rounded-lg px-4 py-2 text-xs font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan Absensi</button>
+          </div>
+        </div>
+      )}
+
+      {tab === "tahsin" && (
+        <div className={`rounded-xl border ${t.border} ${t.panel} p-5 max-w-xl`}>
+          <Field t={t} label="Siswa">
+            <select value={tahsin.siswa} onChange={(e) => setTahsin({ ...tahsin, siswa: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+              <option value="">Pilih siswa...</option>
+              {students.map((s) => <option key={s.id} value={s.nama}>{s.nama}</option>)}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field t={t} label={level === "Level 1" ? "Jilid Iqra'" : "Juz"}>
+              <input value={tahsin.jilid} onChange={(e) => setTahsin({ ...tahsin, jilid: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+            </Field>
+            <Field t={t} label="Halaman">
+              <input value={tahsin.halaman} onChange={(e) => setTahsin({ ...tahsin, halaman: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+            </Field>
+          </div>
+          <Field t={t} label="Status">
+            <select value={tahsin.status} onChange={(e) => setTahsin({ ...tahsin, status: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+              <option>Lancar</option><option>Mengulang</option><option>Belum</option>
+            </select>
+          </Field>
+          <Field t={t} label="Catatan"><textarea value={tahsin.catatan} onChange={(e) => setTahsin({ ...tahsin, catatan: e.target.value })} rows={3} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <button onClick={() => flash("Data tahsin tersimpan")} className="rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan Tahsin</button>
+        </div>
+      )}
+
+      {tab === "hafalan" && (
+        <div className={`rounded-xl border ${t.border} ${t.panel} p-5 max-w-xl`}>
+          <div className="grid grid-cols-2 gap-3">
+            <Field t={t} label="Nama Juz"><input value={hafalan.juz} onChange={(e) => setHafalan({ ...hafalan, juz: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+            <Field t={t} label="Nama Surah"><input value={hafalan.surah} onChange={(e) => setHafalan({ ...hafalan, surah: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+            <Field t={t} label="Halaman"><input value={hafalan.halaman} onChange={(e) => setHafalan({ ...hafalan, halaman: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+            <Field t={t} label="Ayat"><input value={hafalan.ayat} onChange={(e) => setHafalan({ ...hafalan, ayat: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          </div>
+          <Field t={t} label="Status">
+            <select value={hafalan.status} onChange={(e) => setHafalan({ ...hafalan, status: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+              <option>Lancar</option><option>Mengulang</option><option>Belum</option>
+            </select>
+          </Field>
+          <Field t={t} label="Catatan Guru"><textarea value={hafalan.catatan} onChange={(e) => setHafalan({ ...hafalan, catatan: e.target.value })} rows={3} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <button onClick={() => flash("Progress hafalan tersimpan")} className="rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan Hafalan</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------- REKAP LAPORAN ---------------------------------- */
+const rekapData = [
+  { tgl: "2026-07-01", guru: "Ust. Ahmad Fauzi", status: "Hadir", masuk: "15:30", pulang: "17:32", jam: "2j 02m", hadirSiswa: 14, tidakHadir: 1, tahsin: "3 siswa", hafalan: "5 siswa" },
+  { tgl: "2026-07-02", guru: "Ustzh. Siti Nurhaliza", status: "Hadir", masuk: "15:28", pulang: "17:30", jam: "2j 02m", hadirSiswa: 15, tidakHadir: 0, tahsin: "4 siswa", hafalan: "6 siswa" },
+  { tgl: "2026-07-03", guru: "Ust. Rizky Ramadhan", status: "Terlambat", masuk: "15:52", pulang: "17:40", jam: "1j 48m", hadirSiswa: 13, tidakHadir: 2, tahsin: "2 siswa", hafalan: "4 siswa" },
+];
+
+function RekapLaporan({ t, flash }) {
+  const exportCsv = () => {
+    const header = "Tanggal,Guru,Status,Jam Masuk,Jam Pulang,Total Jam,Siswa Hadir,Siswa Tidak Hadir,Tahsin,Hafalan\n";
+    const rows = rekapData.map(r => `${r.tgl},${r.guru},${r.status},${r.masuk},${r.pulang},${r.jam},${r.hadirSiswa},${r.tidakHadir},${r.tahsin},${r.hafalan}`).join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "rekap-laporan-madani.csv"; a.click();
+    URL.revokeObjectURL(url);
+    flash("Laporan berhasil diekspor (CSV)");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4 flex flex-wrap gap-3 items-end`}>
+        <Field t={t} label="Tahun Ajaran"><select className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}><option>2025/2026</option></select></Field>
+        <Field t={t} label="Semester"><select className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}><option>Genap</option><option>Ganjil</option></select></Field>
+        <Field t={t} label="Bulan"><select className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}><option>Juli 2026</option></select></Field>
+        <Field t={t} label="Level"><select className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}><option>Semua Level</option><option>Level 1</option><option>Level 2</option><option>Level 3</option></select></Field>
+        <button className="rounded-lg px-4 py-2 text-sm font-medium text-white h-fit" style={{ backgroundColor: EMERALD }}>Terapkan Filter</button>
+      </div>
+
+      <div className="flex flex-wrap gap-2 justify-end">
+        <button onClick={exportCsv} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium border ${t.border} ${t.text} ${t.hover}`}><Download size={14} /> Excel/CSV</button>
+        <button onClick={() => flash("Laporan berhasil diekspor (PDF)")} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium border ${t.border} ${t.text} ${t.hover}`}><Download size={14} /> PDF</button>
+        <button onClick={() => flash("Laporan berhasil diekspor (PNG)")} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium border ${t.border} ${t.text} ${t.hover}`}><ImageIcon size={14} /> PNG/JPG</button>
+        <button onClick={() => window.print && flash("Menyiapkan cetak laporan...")} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-white`} style={{ backgroundColor: GOLD }}><Printer size={14} /> Cetak</button>
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+              <th className="px-4 py-3 font-medium">Tanggal</th>
+              <th className="px-4 py-3 font-medium">Guru</th>
+              <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Masuk</th>
+              <th className="px-4 py-3 font-medium">Pulang</th>
+              <th className="px-4 py-3 font-medium">Total Jam</th>
+              <th className="px-4 py-3 font-medium">Siswa Hadir</th>
+              <th className="px-4 py-3 font-medium">Tahsin</th>
+              <th className="px-4 py-3 font-medium">Hafalan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rekapData.map((r, i) => (
+              <tr key={i} className={`border-b ${t.border} last:border-0`}>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{r.tgl}</td>
+                <td className={`px-4 py-3 ${t.text} font-medium`}>{r.guru}</td>
+                <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{r.masuk}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{r.pulang}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{r.jam}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{r.hadirSiswa} / {r.hadirSiswa + r.tidakHadir}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{r.tahsin}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{r.hafalan}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- PENGATURAN ---------------------------------- */
+function Pengaturan({ t, flash }) {
+  const [logo, setLogo] = useState(null);
+  const [identitas, setIdentitas] = useState({ nama: "Madrasah Sore Madani", yayasan: "Yayasan Pendidikan Madani", alamat: "Jl. Pendidikan No. 12, Depok", hp: "0812-3456-7890", email: "info@madani.sch.id", website: "www.madani.sch.id", kepala: "Ust. H. Abdullah, S.Pd.I", tahun: "2015" });
+
+  const onLogoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) { setLogo(URL.createObjectURL(file)); flash("Logo berhasil diunggah"); }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-5`}>
+        <p className={`text-sm font-semibold mb-4 flex items-center gap-2 ${t.text}`}><ImageIcon size={16} /> Upload Logo</p>
+        <div className={`h-32 rounded-lg border-2 border-dashed ${t.border} flex items-center justify-center mb-3 overflow-hidden`}>
+          {logo ? <img src={logo} alt="logo" className="h-full object-contain" /> : <p className={`text-xs ${t.textMuted}`}>Preview logo (maks. 2MB)</p>}
+        </div>
+        <label className={`flex items-center justify-center gap-2 rounded-lg border ${t.border} ${t.hover} py-2 text-sm cursor-pointer ${t.text}`}>
+          <Upload size={14} /> Pilih File
+          <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={onLogoUpload} />
+        </label>
+        {logo && <button onClick={() => { setLogo(null); flash("Logo dihapus", "error"); }} className="w-full mt-2 text-xs text-red-500">Hapus Logo</button>}
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-5`}>
+        <p className={`text-sm font-semibold mb-4 flex items-center gap-2 ${t.text}`}><PenTool size={16} /> Tanda Tangan Digital</p>
+        <div className={`h-32 rounded-lg border-2 border-dashed ${t.border} flex items-center justify-center mb-3`}>
+          <p className={`text-xs ${t.textMuted}`}>Canvas tanda tangan / upload PNG transparan</p>
+        </div>
+        <Field t={t} label="Nama"><input defaultValue="Ust. H. Abdullah, S.Pd.I" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+        <Field t={t} label="Jabatan"><input defaultValue="Kepala Madrasah" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-5 lg:col-span-2`}>
+        <p className={`text-sm font-semibold mb-4 ${t.text}`}>Identitas Madrasah</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+          <Field t={t} label="Nama Madrasah"><input value={identitas.nama} onChange={(e) => setIdentitas({ ...identitas, nama: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Nama Yayasan"><input value={identitas.yayasan} onChange={(e) => setIdentitas({ ...identitas, yayasan: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Alamat"><input value={identitas.alamat} onChange={(e) => setIdentitas({ ...identitas, alamat: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Nomor HP"><input value={identitas.hp} onChange={(e) => setIdentitas({ ...identitas, hp: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Email"><input value={identitas.email} onChange={(e) => setIdentitas({ ...identitas, email: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Website"><input value={identitas.website} onChange={(e) => setIdentitas({ ...identitas, website: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Kepala Madrasah"><input value={identitas.kepala} onChange={(e) => setIdentitas({ ...identitas, kepala: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Tahun Berdiri"><input value={identitas.tahun} onChange={(e) => setIdentitas({ ...identitas, tahun: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+        </div>
+        <button onClick={() => flash("Identitas madrasah tersimpan")} className="rounded-lg px-5 py-2.5 text-sm font-semibold text-white mt-2" style={{ backgroundColor: EMERALD }}>Simpan Identitas</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- PROFIL ---------------------------------- */
+function Profil({ t, role, profileName }) {
+  const Icon = roster[role]?.icon || User;
+  return (
+    <div className={`rounded-xl border ${t.border} ${t.panel} p-6 max-w-md`}>
+      <div className="flex items-center gap-4 mb-5">
+        <div className="h-16 w-16 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: EMERALD }}><Icon size={26} /></div>
+        <div>
+          <p className={`font-semibold ${t.text}`}>{profileName}</p>
+          <Badge tone="blue">{role}</Badge>
+        </div>
+      </div>
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between"><span className={t.textMuted}>Status</span><Badge tone="emerald">Aktif</Badge></div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- PAGINATION ---------------------------------- */
+function Pagination({ t, pg, setPg, totalPages, total }) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className={t.textMuted}>Menampilkan {total === 0 ? 0 : (pg - 1) * 5 + 1}-{Math.min(pg * 5, total)} dari {total} data</span>
+      <div className="flex gap-1">
+        <button disabled={pg === 1} onClick={() => setPg(pg - 1)} className={`px-3 py-1.5 rounded-md border ${t.border} ${t.text} disabled:opacity-40`}>Sebelumnya</button>
+        <span className={`px-3 py-1.5 ${t.text}`}>{pg} / {totalPages}</span>
+        <button disabled={pg === totalPages} onClick={() => setPg(pg + 1)} className={`px-3 py-1.5 rounded-md border ${t.border} ${t.text} disabled:opacity-40`}>Berikutnya</button>
+      </div>
+    </div>
+  );
+}
