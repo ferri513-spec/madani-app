@@ -311,10 +311,10 @@ export default function MadaniApp() {
           {page === "guru" && <DataGuru t={t} guruList={guruList} setGuruList={setGuruList} flash={flash} />}
           {page === "siswa" && <DataSiswa t={t} siswaList={siswaList} setSiswaList={setSiswaList} flash={flash} />}
           {page === "absensiGuru" && <AbsensiGuru t={t} role={role} profileName={profileName} absensiGuru={absensiGuru} setAbsensiGuru={setAbsensiGuru} checkedIn={checkedIn} setCheckedIn={setCheckedIn} checkInTime={checkInTime} setCheckInTime={setCheckInTime} flash={flash} />}
-          {page === "catatan" && <CatatanHarian t={t} siswaList={siswaList} checkedIn={checkedIn} role={role} flash={flash} />}
+          {page === "catatan" && <CatatanHarian t={t} siswaList={siswaList} checkedIn={checkedIn} role={role} userId={userId} flash={flash} />}
           {page === "pembelajaran" && <JurnalPembelajaran t={t} checkedIn={checkedIn} role={role} userId={userId} profileName={profileName} flash={flash} />}
           {page === "penilaian" && <PenilaianMingguan t={t} checkedIn={checkedIn} role={role} userId={userId} siswaList={siswaList} flash={flash} />}
-          {page === "rekap" && <RekapLaporan t={t} flash={flash} />}
+          {page === "rekap" && <RekapLaporan t={t} dark={dark} siswaList={siswaList} flash={flash} />}
           {page === "pengaturan" && <Pengaturan t={t} flash={flash} />}
           {page === "profil" && <Profil t={t} role={role} profileName={profileName} />}
         </main>
@@ -741,14 +741,32 @@ function RiwayatTable({ t, data, showName }) {
 }
 
 /* ---------------------------------- CATATAN HARIAN ---------------------------------- */
-function CatatanHarian({ t, siswaList, checkedIn, role, flash }) {
+function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
   const [level, setLevel] = useState("Level 1");
   const [tab, setTab] = useState("absensi");
   const [absensi, setAbsensi] = useState({});
-  const [hafalan, setHafalan] = useState({ juz: "", surah: "", halaman: "", ayat: "", status: "Lancar", catatan: "" });
+  const [savingAbsensi, setSavingAbsensi] = useState(false);
+  const [hafalan, setHafalan] = useState({ siswa: "", juz: "", surah: "", halaman: "", ayat: "", status: "Lancar", catatan: "" });
   const [tahsin, setTahsin] = useState({ siswa: "", jilid: "", halaman: "", status: "Lancar", catatan: "" });
+  const [savingTahsin, setSavingTahsin] = useState(false);
+  const [savingHafalan, setSavingHafalan] = useState(false);
 
+  const today = new Date().toISOString().slice(0, 10);
   const students = siswaList.filter((s) => s.level === level);
+
+  useEffect(() => {
+    const loadAbsensi = async () => {
+      const ids = students.map((s) => s.id);
+      if (ids.length === 0) return;
+      const { data } = await supabase.from("student_attendance").select("*").in("student_id", ids).eq("tanggal", today);
+      if (data) {
+        const map = {};
+        data.forEach((r) => { map[r.student_id] = r.status; });
+        setAbsensi(map);
+      }
+    };
+    loadAbsensi();
+  }, [level]);
 
   if (role === "Guru" && !checkedIn) {
     return (
@@ -765,6 +783,44 @@ function CatatanHarian({ t, siswaList, checkedIn, role, flash }) {
     { key: "tahsin", label: "Mutaba'ah Tahsin" },
     { key: "hafalan", label: "Progress Hafalan" },
   ];
+
+  const handleSaveAbsensi = async () => {
+    setSavingAbsensi(true);
+    const rows = students.map((s) => ({
+      student_id: s.id, teacher_id: userId, tanggal: today, status: absensi[s.id] || "Hadir",
+    }));
+    const { error } = await supabase.from("student_attendance").upsert(rows, { onConflict: "student_id,tanggal" });
+    setSavingAbsensi(false);
+    if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    flash("Absensi siswa tersimpan");
+  };
+
+  const handleSaveTahsin = async () => {
+    if (!tahsin.siswa) { flash("Pilih siswa terlebih dahulu", "error"); return; }
+    setSavingTahsin(true);
+    const { error } = await supabase.from("tahsin_progress").insert({
+      student_id: tahsin.siswa, teacher_id: userId, tanggal: today,
+      jilid_juz: tahsin.jilid, halaman: tahsin.halaman, status: tahsin.status, catatan: tahsin.catatan,
+    });
+    setSavingTahsin(false);
+    if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    flash("Data tahsin tersimpan");
+    setTahsin({ siswa: "", jilid: "", halaman: "", status: "Lancar", catatan: "" });
+  };
+
+  const handleSaveHafalan = async () => {
+    if (!hafalan.siswa) { flash("Pilih siswa terlebih dahulu", "error"); return; }
+    setSavingHafalan(true);
+    const { error } = await supabase.from("memorization_progress").insert({
+      student_id: hafalan.siswa, teacher_id: userId, tanggal: today,
+      juz: hafalan.juz, surah: hafalan.surah, halaman: hafalan.halaman, ayat: hafalan.ayat,
+      status: hafalan.status, catatan: hafalan.catatan,
+    });
+    setSavingHafalan(false);
+    if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    flash("Progress hafalan tersimpan");
+    setHafalan({ siswa: "", juz: "", surah: "", halaman: "", ayat: "", status: "Lancar", catatan: "" });
+  };
 
   return (
     <div className="space-y-4">
@@ -812,7 +868,9 @@ function CatatanHarian({ t, siswaList, checkedIn, role, flash }) {
             </tbody>
           </table>
           <div className="p-3 border-t flex justify-end" style={{ borderColor: t.border.includes("800") ? "#1f2937" : "#e5e7eb" }}>
-            <button onClick={() => flash("Absensi siswa tersimpan (auto-save)")} className="rounded-lg px-4 py-2 text-xs font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan Absensi</button>
+            <button onClick={handleSaveAbsensi} disabled={savingAbsensi} className="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+              {savingAbsensi ? "Menyimpan..." : "Simpan Absensi"}
+            </button>
           </div>
         </div>
       )}
@@ -822,7 +880,7 @@ function CatatanHarian({ t, siswaList, checkedIn, role, flash }) {
           <Field t={t} label="Siswa">
             <select value={tahsin.siswa} onChange={(e) => setTahsin({ ...tahsin, siswa: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
               <option value="">Pilih siswa...</option>
-              {students.map((s) => <option key={s.id} value={s.nama}>{s.nama}</option>)}
+              {students.map((s) => <option key={s.id} value={s.id}>{s.nama}</option>)}
             </select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
@@ -839,12 +897,20 @@ function CatatanHarian({ t, siswaList, checkedIn, role, flash }) {
             </select>
           </Field>
           <Field t={t} label="Catatan"><textarea value={tahsin.catatan} onChange={(e) => setTahsin({ ...tahsin, catatan: e.target.value })} rows={3} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <button onClick={() => flash("Data tahsin tersimpan")} className="rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan Tahsin</button>
+          <button onClick={handleSaveTahsin} disabled={savingTahsin} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+            {savingTahsin ? "Menyimpan..." : "Simpan Tahsin"}
+          </button>
         </div>
       )}
 
       {tab === "hafalan" && (
         <div className={`rounded-xl border ${t.border} ${t.panel} p-5 max-w-xl`}>
+          <Field t={t} label="Siswa">
+            <select value={hafalan.siswa} onChange={(e) => setHafalan({ ...hafalan, siswa: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+              <option value="">Pilih siswa...</option>
+              {students.map((s) => <option key={s.id} value={s.id}>{s.nama}</option>)}
+            </select>
+          </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field t={t} label="Nama Juz"><input value={hafalan.juz} onChange={(e) => setHafalan({ ...hafalan, juz: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
             <Field t={t} label="Nama Surah"><input value={hafalan.surah} onChange={(e) => setHafalan({ ...hafalan, surah: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
@@ -857,7 +923,9 @@ function CatatanHarian({ t, siswaList, checkedIn, role, flash }) {
             </select>
           </Field>
           <Field t={t} label="Catatan Guru"><textarea value={hafalan.catatan} onChange={(e) => setHafalan({ ...hafalan, catatan: e.target.value })} rows={3} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <button onClick={() => flash("Progress hafalan tersimpan")} className="rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan Hafalan</button>
+          <button onClick={handleSaveHafalan} disabled={savingHafalan} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+            {savingHafalan ? "Menyimpan..." : "Simpan Hafalan"}
+          </button>
         </div>
       )}
     </div>
@@ -1155,74 +1223,173 @@ function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose,
   );
 }
 
-/* ---------------------------------- REKAP LAPORAN ---------------------------------- */
-const rekapData = [
-  { tgl: "2026-07-01", guru: "Ust. Ahmad Fauzi", status: "Hadir", masuk: "15:30", pulang: "17:32", jam: "2j 02m", hadirSiswa: 14, tidakHadir: 1, tahsin: "3 siswa", hafalan: "5 siswa" },
-  { tgl: "2026-07-02", guru: "Ustzh. Siti Nurhaliza", status: "Hadir", masuk: "15:28", pulang: "17:30", jam: "2j 02m", hadirSiswa: 15, tidakHadir: 0, tahsin: "4 siswa", hafalan: "6 siswa" },
-  { tgl: "2026-07-03", guru: "Ust. Rizky Ramadhan", status: "Terlambat", masuk: "15:52", pulang: "17:40", jam: "1j 48m", hadirSiswa: 13, tidakHadir: 2, tahsin: "2 siswa", hafalan: "4 siswa" },
-];
+/* ---------------------------------- REKAP LAPORAN (LAPORAN HARIAN PER LEVEL) ---------------------------------- */
+function RekapLaporan({ t, dark, siswaList, flash }) {
+  const [level, setLevel] = useState("Level 1");
+  const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
+  const [pesanGuru, setPesanGuru] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const reportRef = React.useRef(null);
 
-function RekapLaporan({ t, flash }) {
-  const exportCsv = () => {
-    const header = "Tanggal,Guru,Status,Jam Masuk,Jam Pulang,Total Jam,Siswa Hadir,Siswa Tidak Hadir,Tahsin,Hafalan\n";
-    const rows = rekapData.map(r => `${r.tgl},${r.guru},${r.status},${r.masuk},${r.pulang},${r.jam},${r.hadirSiswa},${r.tidakHadir},${r.tahsin},${r.hafalan}`).join("\n");
-    const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "rekap-laporan-madani.csv"; a.click();
-    URL.revokeObjectURL(url);
-    flash("Laporan berhasil diekspor (CSV)");
+  const students = siswaList.filter((s) => s.level === level && s.aktif !== false);
+
+  const loadData = async () => {
+    setLoading(true);
+    const ids = students.map((s) => s.id);
+    const weekStart = getWeekStart(new Date(tanggal));
+
+    const [{ data: att }, { data: tahsin }, { data: hafalan }, { data: nilai }] = await Promise.all([
+      ids.length ? supabase.from("student_attendance").select("*").in("student_id", ids).eq("tanggal", tanggal) : { data: [] },
+      ids.length ? supabase.from("tahsin_progress").select("*").in("student_id", ids).eq("tanggal", tanggal).order("created_at", { ascending: false }) : { data: [] },
+      ids.length ? supabase.from("memorization_progress").select("*").in("student_id", ids).eq("tanggal", tanggal).order("created_at", { ascending: false }) : { data: [] },
+      ids.length ? supabase.from("weekly_assessment").select("*").eq("level", level).eq("week_start", weekStart) : { data: [] },
+    ]);
+
+    const attMap = {}; (att || []).forEach((r) => { attMap[r.student_id] = r; });
+    const tahsinMap = {}; (tahsin || []).forEach((r) => { if (!tahsinMap[r.student_id]) tahsinMap[r.student_id] = r; });
+    const hafalanMap = {}; (hafalan || []).forEach((r) => { if (!hafalanMap[r.student_id]) hafalanMap[r.student_id] = r; });
+    const nilaiMap = {}; (nilai || []).forEach((r) => { nilaiMap[r.student_id] = r; });
+
+    setRows(students.map((s) => ({
+      ...s,
+      attendance: attMap[s.id],
+      tahsin: tahsinMap[s.id],
+      hafalan: hafalanMap[s.id],
+      nilai: nilaiMap[s.id],
+    })));
+    setLoading(false);
+    setLoaded(true);
   };
+
+  const exportImage = async (format) => {
+    if (!reportRef.current) return;
+    setExporting(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(reportRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+      const mime = format === "jpeg" ? "image/jpeg" : "image/png";
+      const url = canvas.toDataURL(mime, 0.95);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `laporan-${level.replace(" ", "")}-${tanggal}.${format === "jpeg" ? "jpg" : "png"}`;
+      a.click();
+      flash(`Laporan berhasil diunduh (${format.toUpperCase()})`);
+    } catch (e) {
+      flash("Gagal membuat gambar: " + e.message, "error");
+    }
+    setExporting(false);
+  };
+
+  const hariIndo = new Date(tanggal).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const hadirCount = rows.filter((r) => (r.attendance?.status || "Hadir") === "Hadir").length;
 
   return (
     <div className="space-y-4">
       <div className={`rounded-xl border ${t.border} ${t.panel} p-4 flex flex-wrap gap-3 items-end`}>
-        <Field t={t} label="Tahun Ajaran"><select className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}><option>2025/2026</option></select></Field>
-        <Field t={t} label="Semester"><select className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}><option>Genap</option><option>Ganjil</option></select></Field>
-        <Field t={t} label="Bulan"><select className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}><option>Juli 2026</option></select></Field>
-        <Field t={t} label="Level"><select className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}><option>Semua Level</option><option>Level 1</option><option>Level 2</option><option>Level 3</option></select></Field>
-        <button className="rounded-lg px-4 py-2 text-sm font-medium text-white h-fit" style={{ backgroundColor: EMERALD }}>Terapkan Filter</button>
+        <Field t={t} label="Level">
+          <select value={level} onChange={(e) => { setLevel(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            <option>Level 1</option><option>Level 2</option><option>Level 3</option>
+          </select>
+        </Field>
+        <Field t={t} label="Tanggal">
+          <input type="date" value={tanggal} onChange={(e) => { setTanggal(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <button onClick={loadData} disabled={loading} className="rounded-lg px-4 py-2 text-sm font-medium text-white h-fit disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+          {loading ? "Memuat..." : "Muat Data"}
+        </button>
       </div>
 
-      <div className="flex flex-wrap gap-2 justify-end">
-        <button onClick={exportCsv} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium border ${t.border} ${t.text} ${t.hover}`}><Download size={14} /> Excel/CSV</button>
-        <button onClick={() => flash("Laporan berhasil diekspor (PDF)")} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium border ${t.border} ${t.text} ${t.hover}`}><Download size={14} /> PDF</button>
-        <button onClick={() => flash("Laporan berhasil diekspor (PNG)")} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium border ${t.border} ${t.text} ${t.hover}`}><ImageIcon size={14} /> PNG/JPG</button>
-        <button onClick={() => window.print && flash("Menyiapkan cetak laporan...")} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-white`} style={{ backgroundColor: GOLD }}><Printer size={14} /> Cetak</button>
-      </div>
+      {loaded && (
+        <>
+          <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+            <Field t={t} label="Catatan / Pesan untuk Wali Santri (opsional)">
+              <textarea value={pesanGuru} onChange={(e) => setPesanGuru(e.target.value)} rows={2}
+                placeholder="Contoh: Alhamdulillah kegiatan hari ini berjalan lancar. Mohon dukung ananda mengulang bacaan di rumah."
+                className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+            </Field>
+          </div>
 
-      <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
-              <th className="px-4 py-3 font-medium">Tanggal</th>
-              <th className="px-4 py-3 font-medium">Guru</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Masuk</th>
-              <th className="px-4 py-3 font-medium">Pulang</th>
-              <th className="px-4 py-3 font-medium">Total Jam</th>
-              <th className="px-4 py-3 font-medium">Siswa Hadir</th>
-              <th className="px-4 py-3 font-medium">Tahsin</th>
-              <th className="px-4 py-3 font-medium">Hafalan</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rekapData.map((r, i) => (
-              <tr key={i} className={`border-b ${t.border} last:border-0`}>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{r.tgl}</td>
-                <td className={`px-4 py-3 ${t.text} font-medium`}>{r.guru}</td>
-                <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{r.masuk}</td>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{r.pulang}</td>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{r.jam}</td>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{r.hadirSiswa} / {r.hadirSiswa + r.tidakHadir}</td>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{r.tahsin}</td>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{r.hafalan}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <button onClick={() => exportImage("png")} disabled={exporting} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+              <Download size={14} /> {exporting ? "Memproses..." : "Download PNG"}
+            </button>
+            <button onClick={() => exportImage("jpeg")} disabled={exporting} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: GOLD }}>
+              <Download size={14} /> {exporting ? "Memproses..." : "Download JPEG"}
+            </button>
+          </div>
+
+          {/* ====== AREA YANG DI-RENDER JADI GAMBAR ====== */}
+          <div className="overflow-x-auto">
+            <div ref={reportRef} style={{ width: 720, fontFamily: "sans-serif", backgroundColor: "#ffffff" }} className="mx-auto rounded-2xl overflow-hidden border border-gray-200">
+              {/* Header */}
+              <div style={{ background: `linear-gradient(135deg, ${EMERALD} 0%, ${EMERALD_DARK} 100%)` }} className="px-6 py-5 text-white">
+                <div className="flex items-center gap-3">
+                  <div className="h-11 w-11 rounded-lg bg-white/15 flex items-center justify-center font-bold text-lg">MSM</div>
+                  <div>
+                    <p className="font-bold text-lg leading-tight">Madrasah Sore Madani</p>
+                    <p className="text-xs opacity-90">Laporan Kegiatan Harian</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-6 pt-4 pb-1 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{level}</p>
+                  <p className="text-xs text-gray-500">{hariIndo}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">Kehadiran</p>
+                  <p className="text-sm font-bold" style={{ color: EMERALD }}>{hadirCount} / {rows.length} Siswa</p>
+                </div>
+              </div>
+
+              <div className="px-6 pb-4 pt-3 space-y-3">
+                {rows.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-6">Belum ada siswa di level ini.</p>
+                )}
+                {rows.map((r, idx) => {
+                  const statusAbsen = r.attendance?.status || "Belum Diabsen";
+                  const statusTone = { Hadir: "#059669", Izin: "#2563eb", Sakit: "#6b7280", Alpha: "#dc2626", "Belum Diabsen": "#9ca3af" }[statusAbsen];
+                  return (
+                    <div key={r.id} className="rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-2" style={{ backgroundColor: "#f8faf9" }}>
+                        <p className="text-sm font-semibold text-gray-800">{idx + 1}. {r.nama}</p>
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: statusTone }}>{statusAbsen}</span>
+                      </div>
+                      <div className="px-4 py-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11.5px]">
+                        <p className="text-gray-500">Tahsin: <span className="text-gray-800 font-medium">{r.tahsin ? `${r.tahsin.jilid_juz || "-"} hal.${r.tahsin.halaman || "-"} (${r.tahsin.status})` : "-"}</span></p>
+                        <p className="text-gray-500">Hafalan: <span className="text-gray-800 font-medium">{r.hafalan ? `${r.hafalan.surah || "-"} ayat ${r.hafalan.ayat || "-"} (${r.hafalan.status})` : "-"}</span></p>
+                        <p className="text-gray-500 col-span-2">Nilai Minggu Ini:{" "}
+                          {r.nilai ? (
+                            <span className="text-gray-800 font-medium">
+                              Tahsin {r.nilai.nilai_tahsin} · Sikap {r.nilai.nilai_sikap} · Tahfidz {r.nilai.nilai_tahfidz} · Pembelajaran {r.nilai.nilai_pembelajaran}
+                            </span>
+                          ) : <span className="text-gray-400">Belum dinilai</span>}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {pesanGuru && (
+                <div className="mx-6 mb-4 rounded-xl px-4 py-3" style={{ backgroundColor: "#fdf8ec", borderLeft: `4px solid ${GOLD}` }}>
+                  <p className="text-[11px] font-semibold mb-0.5" style={{ color: GOLD }}>Pesan untuk Wali Santri</p>
+                  <p className="text-xs text-gray-700 leading-relaxed">{pesanGuru}</p>
+                </div>
+              )}
+
+              <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
+                <p className="text-[10px] text-gray-400">Dibuat otomatis oleh Sistem Manajemen Madrasah Sore Madani</p>
+                <p className="text-[10px] text-gray-400">{new Date().toLocaleString("id-ID")}</p>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
