@@ -750,6 +750,8 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
   const [tahsin, setTahsin] = useState({ siswa: "", jilid: "", halaman: "", status: "Lancar", catatan: "" });
   const [savingTahsin, setSavingTahsin] = useState(false);
   const [savingHafalan, setSavingHafalan] = useState(false);
+  const [riwayatTahsin, setRiwayatTahsin] = useState([]);
+  const [riwayatHafalan, setRiwayatHafalan] = useState([]);
 
   const today = new Date().toISOString().slice(0, 10);
   const students = siswaList.filter((s) => s.level === level);
@@ -766,7 +768,41 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
       }
     };
     loadAbsensi();
+    fetchRiwayatTahsin();
+    fetchRiwayatHafalan();
   }, [level]);
+
+  const fetchRiwayatTahsin = async () => {
+    const ids = students.map((s) => s.id);
+    if (ids.length === 0) { setRiwayatTahsin([]); return; }
+    const { data } = await supabase.from("tahsin_progress").select("*").in("student_id", ids).eq("tanggal", today).order("created_at", { ascending: false });
+    setRiwayatTahsin(data || []);
+  };
+
+  const fetchRiwayatHafalan = async () => {
+    const ids = students.map((s) => s.id);
+    if (ids.length === 0) { setRiwayatHafalan([]); return; }
+    const { data } = await supabase.from("memorization_progress").select("*").in("student_id", ids).eq("tanggal", today).order("created_at", { ascending: false });
+    setRiwayatHafalan(data || []);
+  };
+
+  const namaSiswa = (id) => students.find((s) => s.id === id)?.nama || "-";
+
+  const hapusTahsin = async (id) => {
+    if (!window.confirm("Hapus catatan tahsin ini?")) return;
+    const { error } = await supabase.from("tahsin_progress").delete().eq("id", id);
+    if (error) { flash("Gagal menghapus: " + error.message, "error"); return; }
+    flash("Catatan tahsin dihapus", "error");
+    fetchRiwayatTahsin();
+  };
+
+  const hapusHafalan = async (id) => {
+    if (!window.confirm("Hapus catatan hafalan ini?")) return;
+    const { error } = await supabase.from("memorization_progress").delete().eq("id", id);
+    if (error) { flash("Gagal menghapus: " + error.message, "error"); return; }
+    flash("Catatan hafalan dihapus", "error");
+    fetchRiwayatHafalan();
+  };
 
   if (role === "Guru" && !checkedIn) {
     return (
@@ -806,6 +842,7 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
     if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
     flash("Data tahsin tersimpan");
     setTahsin({ siswa: "", jilid: "", halaman: "", status: "Lancar", catatan: "" });
+    fetchRiwayatTahsin();
   };
 
   const handleSaveHafalan = async () => {
@@ -820,6 +857,7 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
     if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
     flash("Progress hafalan tersimpan");
     setHafalan({ siswa: "", juz: "", surah: "", halaman: "", ayat: "", status: "Lancar", catatan: "" });
+    fetchRiwayatHafalan();
   };
 
   return (
@@ -900,6 +938,23 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
           <button onClick={handleSaveTahsin} disabled={savingTahsin} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
             {savingTahsin ? "Menyimpan..." : "Simpan Tahsin"}
           </button>
+
+          {riwayatTahsin.length > 0 && (
+            <div className={`mt-5 pt-4 border-t ${t.border}`}>
+              <p className={`text-xs font-semibold mb-2 ${t.textMuted}`}>Catatan Tahsin Hari Ini</p>
+              <div className="space-y-2">
+                {riwayatTahsin.map((r) => (
+                  <div key={r.id} className={`flex items-center justify-between rounded-lg border ${t.border} px-3 py-2`}>
+                    <div className="text-xs">
+                      <p className={`font-medium ${t.text}`}>{namaSiswa(r.student_id)} — {r.jilid_juz || "-"} hal.{r.halaman || "-"}</p>
+                      <p className={t.textMuted}>{r.status}{r.catatan ? ` · ${r.catatan}` : ""}</p>
+                    </div>
+                    <button onClick={() => hapusTahsin(r.id)} className="p-1.5 rounded-md hover:bg-red-50"><Trash2 size={14} className="text-red-500" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -926,6 +981,23 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
           <button onClick={handleSaveHafalan} disabled={savingHafalan} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
             {savingHafalan ? "Menyimpan..." : "Simpan Hafalan"}
           </button>
+
+          {riwayatHafalan.length > 0 && (
+            <div className={`mt-5 pt-4 border-t ${t.border}`}>
+              <p className={`text-xs font-semibold mb-2 ${t.textMuted}`}>Catatan Hafalan Hari Ini</p>
+              <div className="space-y-2">
+                {riwayatHafalan.map((r) => (
+                  <div key={r.id} className={`flex items-center justify-between rounded-lg border ${t.border} px-3 py-2`}>
+                    <div className="text-xs">
+                      <p className={`font-medium ${t.text}`}>{namaSiswa(r.student_id)} — {r.surah || "-"} ayat {r.ayat || "-"}</p>
+                      <p className={t.textMuted}>{r.status}{r.catatan ? ` · ${r.catatan}` : ""}</p>
+                    </div>
+                    <button onClick={() => hapusHafalan(r.id)} className="p-1.5 rounded-md hover:bg-red-50"><Trash2 size={14} className="text-red-500" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -952,6 +1024,14 @@ function JurnalPembelajaran({ t, checkedIn, role, userId, profileName, flash }) 
   };
 
   useEffect(() => { fetchRiwayat(); }, [role, userId]);
+
+  const hapusJurnal = async (id) => {
+    if (!window.confirm("Hapus jurnal pembelajaran ini?")) return;
+    const { error } = await supabase.from("teaching_journal").delete().eq("id", id);
+    if (error) { flash("Gagal menghapus: " + error.message, "error"); return; }
+    flash("Jurnal dihapus", "error");
+    fetchRiwayat();
+  };
 
   if (role === "Guru" && !checkedIn) {
     return (
@@ -1025,14 +1105,17 @@ function JurnalPembelajaran({ t, checkedIn, role, userId, profileName, flash }) 
         ) : (
           <div className="space-y-3">
             {riwayat.map((r) => (
-              <div key={r.id} className={`border-b ${t.border} last:border-0 pb-3 last:pb-0`}>
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <Badge tone="gray">{r.level}</Badge>
-                  <span className={`text-xs ${t.textMuted}`}>{r.tanggal}</span>
+              <div key={r.id} className={`border-b ${t.border} last:border-0 pb-3 last:pb-0 flex items-start justify-between gap-2`}>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <Badge tone="gray">{r.level}</Badge>
+                    <span className={`text-xs ${t.textMuted}`}>{r.tanggal}</span>
+                  </div>
+                  <p className={`text-sm font-medium ${t.text}`}>{r.materi}</p>
+                  {r.metode && <p className={`text-xs ${t.textMuted}`}>Metode: {r.metode}</p>}
+                  {r.evaluasi && <p className={`text-xs ${t.textMuted}`}>Evaluasi: {r.evaluasi}</p>}
                 </div>
-                <p className={`text-sm font-medium ${t.text}`}>{r.materi}</p>
-                {r.metode && <p className={`text-xs ${t.textMuted}`}>Metode: {r.metode}</p>}
-                {r.evaluasi && <p className={`text-xs ${t.textMuted}`}>Evaluasi: {r.evaluasi}</p>}
+                <button onClick={() => hapusJurnal(r.id)} className="p-1.5 rounded-md hover:bg-red-50 shrink-0"><Trash2 size={14} className="text-red-500" /></button>
               </div>
             ))}
           </div>
@@ -1153,6 +1236,7 @@ function PenilaianMingguan({ t, checkedIn, role, userId, siswaList, flash }) {
           t={t} siswa={modalSiswa} existing={records[modalSiswa.id]} weekStart={weekStart} level={level} userId={userId}
           onClose={() => setModalSiswa(null)}
           onSaved={() => { setModalSiswa(null); fetchRecords(); flash("Penilaian tersimpan"); }}
+          onDeleted={() => { setModalSiswa(null); fetchRecords(); flash("Penilaian dihapus", "error"); }}
           onError={(msg) => flash("Gagal menyimpan: " + msg, "error")}
         />
       )}
@@ -1160,7 +1244,7 @@ function PenilaianMingguan({ t, checkedIn, role, userId, siswaList, flash }) {
   );
 }
 
-function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose, onSaved, onError }) {
+function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose, onSaved, onDeleted, onError }) {
   const [form, setForm] = useState({
     nilai_tahsin: existing?.nilai_tahsin || "Baik",
     nilai_sikap: existing?.nilai_sikap || "Baik",
@@ -1171,6 +1255,7 @@ function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose,
     catatan: existing?.catatan || "",
   });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
@@ -1180,6 +1265,15 @@ function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose,
     setSaving(false);
     if (error) { onError(error.message); return; }
     onSaved();
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm("Hapus penilaian minggu ini untuk siswa ini?")) return;
+    setDeleting(true);
+    const { error } = await supabase.from("weekly_assessment").delete().eq("id", existing.id);
+    setDeleting(false);
+    if (error) { onError(error.message); return; }
+    onDeleted();
   };
 
   return (
@@ -1216,9 +1310,16 @@ function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose,
         <textarea value={form.catatan} onChange={(e) => setForm({ ...form, catatan: e.target.value })} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
       </Field>
 
-      <button onClick={handleSave} disabled={saving} className="w-full mt-2 rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
-        {saving ? "Menyimpan..." : "Simpan Penilaian"}
-      </button>
+      <div className="flex gap-2 mt-2">
+        <button onClick={handleSave} disabled={saving || deleting} className="flex-1 rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+          {saving ? "Menyimpan..." : "Simpan Penilaian"}
+        </button>
+        {existing && (
+          <button onClick={handleDelete} disabled={saving || deleting} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-60">
+            {deleting ? "Menghapus..." : "Hapus"}
+          </button>
+        )}
+      </div>
     </Modal>
   );
 }
