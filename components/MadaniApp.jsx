@@ -148,7 +148,12 @@ export default function MadaniApp() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [role, setRole] = useState("Guru");
   const [profileName, setProfileName] = useState("");
+  const [profileFotoUrl, setProfileFotoUrl] = useState(null);
   const [userId, setUserId] = useState(null);
+  const [settings, setSettings] = useState({
+    nama_madrasah: "Madrasah Sore Madani", nama_yayasan: "", alamat: "", no_hp: "",
+    email: "", website: "", kepala_madrasah: "", tahun_berdiri: "", logo_url: null,
+  });
   const [dark, setDark] = useState(false);
   const [page, setPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -174,9 +179,15 @@ export default function MadaniApp() {
     if (!error && data) {
       setRole(data.role);
       setProfileName(data.nama);
+      setProfileFotoUrl(data.foto_url || null);
       setUserId(userId);
       setLoggedIn(true);
     }
+  };
+
+  const fetchSettings = async () => {
+    const { data, error } = await supabase.from("settings").select("*").eq("id", 1).single();
+    if (!error && data) setSettings(data);
   };
 
   const handleLogout = async () => {
@@ -196,6 +207,7 @@ export default function MadaniApp() {
   /* ---- ambil data siswa dari database sungguhan setelah login ---- */
   useEffect(() => {
     if (!loggedIn) return;
+    fetchSettings();
     const fetchSiswa = async () => {
       setSiswaLoading(true);
       const { data, error } = await supabase.from("students").select("*").order("id");
@@ -242,9 +254,13 @@ export default function MadaniApp() {
       {/* SIDEBAR */}
       <aside className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed md:static z-40 h-full w-64 ${t.panel} border-r ${t.border} flex flex-col transition-transform duration-200`}>
         <div className={`flex items-center gap-2 px-5 py-5 border-b ${t.border}`}>
-          <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white font-bold" style={{ backgroundColor: EMERALD }}>MSM</div>
-          <div>
-            <p className={`font-semibold text-sm ${t.text}`}>Madrasah Sore</p>
+          {settings.logo_url ? (
+            <img src={settings.logo_url} alt="Logo" className="h-9 w-9 rounded-lg object-contain shrink-0" style={{ backgroundColor: "#f3f4f6" }} />
+          ) : (
+            <div className="h-9 w-9 rounded-lg flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: EMERALD }}>MSM</div>
+          )}
+          <div className="min-w-0">
+            <p className={`font-semibold text-sm ${t.text} truncate`}>{settings.nama_madrasah || "Madrasah Sore Madani"}</p>
             <p className="text-xs" style={{ color: GOLD }}>MADANI</p>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="md:hidden ml-auto"><X size={18} className={t.textMuted} /></button>
@@ -294,9 +310,13 @@ export default function MadaniApp() {
               <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
             </button>
             <div className="flex items-center gap-2 pl-2 border-l ml-1" style={{ borderColor: dark ? "#374151" : "#e5e7eb" }}>
-              <div className="h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-semibold" style={{ backgroundColor: EMERALD }}>
-                {(profileName || role).split(" ").map(w => w[0]).slice(0, 2).join("")}
-              </div>
+              {profileFotoUrl ? (
+                <img src={profileFotoUrl} alt={profileName} className="h-8 w-8 rounded-full object-cover" />
+              ) : (
+                <div className="h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-semibold" style={{ backgroundColor: EMERALD }}>
+                  {(profileName || role).split(" ").map(w => w[0]).slice(0, 2).join("")}
+                </div>
+              )}
               <div className="hidden sm:block">
                 <p className={`text-xs font-medium ${t.text}`}>{profileName}</p>
                 <p className={`text-[11px] ${t.textMuted}`}>{role}</p>
@@ -314,9 +334,9 @@ export default function MadaniApp() {
           {page === "catatan" && <CatatanHarian t={t} siswaList={siswaList} checkedIn={checkedIn} role={role} userId={userId} flash={flash} />}
           {page === "pembelajaran" && <JurnalPembelajaran t={t} checkedIn={checkedIn} role={role} userId={userId} profileName={profileName} flash={flash} />}
           {page === "penilaian" && <PenilaianMingguan t={t} checkedIn={checkedIn} role={role} userId={userId} siswaList={siswaList} flash={flash} />}
-          {page === "rekap" && <RekapLaporan t={t} dark={dark} siswaList={siswaList} flash={flash} />}
-          {page === "pengaturan" && <Pengaturan t={t} flash={flash} />}
-          {page === "profil" && <Profil t={t} role={role} profileName={profileName} />}
+          {page === "rekap" && <RekapLaporan t={t} dark={dark} siswaList={siswaList} settings={settings} flash={flash} />}
+          {page === "pengaturan" && <Pengaturan t={t} settings={settings} setSettings={setSettings} flash={flash} />}
+          {page === "profil" && <Profil t={t} role={role} profileName={profileName} userId={userId} fotoUrl={profileFotoUrl} setFotoUrl={setProfileFotoUrl} flash={flash} />}
         </main>
       </div>
       <Toast msg={toast?.msg} tone={toast?.tone} />
@@ -1325,7 +1345,7 @@ function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose,
 }
 
 /* ---------------------------------- REKAP LAPORAN (WRAPPER TAB) ---------------------------------- */
-function RekapLaporan({ t, dark, siswaList, flash }) {
+function RekapLaporan({ t, dark, siswaList, settings, flash }) {
   const [tab, setTab] = useState("harian");
   return (
     <div className="space-y-4">
@@ -1337,14 +1357,14 @@ function RekapLaporan({ t, dark, siswaList, flash }) {
           </button>
         ))}
       </div>
-      {tab === "harian" && <RekapHarian t={t} dark={dark} siswaList={siswaList} flash={flash} />}
+      {tab === "harian" && <RekapHarian t={t} dark={dark} siswaList={siswaList} settings={settings} flash={flash} />}
       {tab === "periode" && <RekapPeriode t={t} siswaList={siswaList} flash={flash} />}
     </div>
   );
 }
 
 /* ---------------------------------- LAPORAN HARIAN PER LEVEL ---------------------------------- */
-function RekapHarian({ t, dark, siswaList, flash }) {
+function RekapHarian({ t, dark, siswaList, settings, flash }) {
   const [level, setLevel] = useState("Level 1");
   const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
   const [pesanGuru, setPesanGuru] = useState("");
@@ -1447,9 +1467,13 @@ function RekapHarian({ t, dark, siswaList, flash }) {
               {/* Header */}
               <div style={{ background: `linear-gradient(135deg, ${EMERALD} 0%, ${EMERALD_DARK} 100%)` }} className="px-6 py-5 text-white">
                 <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 rounded-lg bg-white/15 flex items-center justify-center font-bold text-lg">MSM</div>
+                  {settings?.logo_url ? (
+                    <img src={settings.logo_url} crossOrigin="anonymous" alt="Logo" className="h-11 w-11 rounded-lg object-contain bg-white/15 p-1" />
+                  ) : (
+                    <div className="h-11 w-11 rounded-lg bg-white/15 flex items-center justify-center font-bold text-lg">MSM</div>
+                  )}
                   <div>
-                    <p className="font-bold text-lg leading-tight">Madrasah Sore Madani</p>
+                    <p className="font-bold text-lg leading-tight">{settings?.nama_madrasah || "Madrasah Sore Madani"}</p>
                     <p className="text-xs opacity-90">Laporan Kegiatan Harian</p>
                   </div>
                 </div>
@@ -1701,13 +1725,48 @@ function RekapPeriode({ t, siswaList, flash }) {
 }
 
 /* ---------------------------------- PENGATURAN ---------------------------------- */
-function Pengaturan({ t, flash }) {
-  const [logo, setLogo] = useState(null);
-  const [identitas, setIdentitas] = useState({ nama: "Madrasah Sore Madani", yayasan: "Yayasan Pendidikan Madani", alamat: "Jl. Pendidikan No. 12, Depok", hp: "0812-3456-7890", email: "info@madani.sch.id", website: "www.madani.sch.id", kepala: "Ust. H. Abdullah, S.Pd.I", tahun: "2015" });
+function Pengaturan({ t, settings, setSettings, flash }) {
+  const [form, setForm] = useState(settings);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const onLogoUpload = (e) => {
+  useEffect(() => { setForm(settings); }, [settings]);
+
+  const onLogoUpload = async (e) => {
     const file = e.target.files?.[0];
-    if (file) { setLogo(URL.createObjectURL(file)); flash("Logo berhasil diunggah"); }
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { flash("Ukuran file maksimal 2MB", "error"); return; }
+    setUploadingLogo(true);
+    const path = `logos/logo-${Date.now()}.${file.name.split(".").pop()}`;
+    const { error: uploadError } = await supabase.storage.from("madani-uploads").upload(path, file, { upsert: true });
+    if (uploadError) { flash("Gagal upload logo: " + uploadError.message, "error"); setUploadingLogo(false); return; }
+    const { data: urlData } = supabase.storage.from("madani-uploads").getPublicUrl(path);
+    const publicUrl = urlData.publicUrl;
+    const { error: updateError } = await supabase.from("settings").update({ logo_url: publicUrl }).eq("id", 1);
+    setUploadingLogo(false);
+    if (updateError) { flash("Gagal menyimpan logo: " + updateError.message, "error"); return; }
+    setSettings({ ...settings, logo_url: publicUrl });
+    flash("Logo berhasil diunggah");
+  };
+
+  const removeLogo = async () => {
+    const { error } = await supabase.from("settings").update({ logo_url: null }).eq("id", 1);
+    if (error) { flash("Gagal menghapus logo: " + error.message, "error"); return; }
+    setSettings({ ...settings, logo_url: null });
+    flash("Logo dihapus", "error");
+  };
+
+  const saveIdentitas = async () => {
+    setSaving(true);
+    const { error } = await supabase.from("settings").update({
+      nama_madrasah: form.nama_madrasah, nama_yayasan: form.nama_yayasan, alamat: form.alamat,
+      no_hp: form.no_hp, email: form.email, website: form.website,
+      kepala_madrasah: form.kepala_madrasah, tahun_berdiri: form.tahun_berdiri,
+    }).eq("id", 1);
+    setSaving(false);
+    if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    setSettings(form);
+    flash("Identitas madrasah tersimpan");
   };
 
   return (
@@ -1715,54 +1774,77 @@ function Pengaturan({ t, flash }) {
       <div className={`rounded-xl border ${t.border} ${t.panel} p-5`}>
         <p className={`text-sm font-semibold mb-4 flex items-center gap-2 ${t.text}`}><ImageIcon size={16} /> Upload Logo</p>
         <div className={`h-32 rounded-lg border-2 border-dashed ${t.border} flex items-center justify-center mb-3 overflow-hidden`}>
-          {logo ? <img src={logo} alt="logo" className="h-full object-contain" /> : <p className={`text-xs ${t.textMuted}`}>Preview logo (maks. 2MB)</p>}
+          {settings.logo_url ? <img src={settings.logo_url} alt="logo" className="h-full object-contain" /> : <p className={`text-xs ${t.textMuted}`}>Preview logo (maks. 2MB)</p>}
         </div>
         <label className={`flex items-center justify-center gap-2 rounded-lg border ${t.border} ${t.hover} py-2 text-sm cursor-pointer ${t.text}`}>
-          <Upload size={14} /> Pilih File
-          <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={onLogoUpload} />
+          <Upload size={14} /> {uploadingLogo ? "Mengunggah..." : "Pilih File"}
+          <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={onLogoUpload} disabled={uploadingLogo} />
         </label>
-        {logo && <button onClick={() => { setLogo(null); flash("Logo dihapus", "error"); }} className="w-full mt-2 text-xs text-red-500">Hapus Logo</button>}
-      </div>
-
-      <div className={`rounded-xl border ${t.border} ${t.panel} p-5`}>
-        <p className={`text-sm font-semibold mb-4 flex items-center gap-2 ${t.text}`}><PenTool size={16} /> Tanda Tangan Digital</p>
-        <div className={`h-32 rounded-lg border-2 border-dashed ${t.border} flex items-center justify-center mb-3`}>
-          <p className={`text-xs ${t.textMuted}`}>Canvas tanda tangan / upload PNG transparan</p>
-        </div>
-        <Field t={t} label="Nama"><input defaultValue="Ust. H. Abdullah, S.Pd.I" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-        <Field t={t} label="Jabatan"><input defaultValue="Kepala Madrasah" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+        {settings.logo_url && <button onClick={removeLogo} className="w-full mt-2 text-xs text-red-500">Hapus Logo</button>}
+        <p className={`text-[11px] mt-2 ${t.textMuted}`}>Logo ini otomatis tampil di sidebar dan di laporan yang di-download (PNG/JPEG).</p>
       </div>
 
       <div className={`rounded-xl border ${t.border} ${t.panel} p-5 lg:col-span-2`}>
         <p className={`text-sm font-semibold mb-4 ${t.text}`}>Identitas Madrasah</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-          <Field t={t} label="Nama Madrasah"><input value={identitas.nama} onChange={(e) => setIdentitas({ ...identitas, nama: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <Field t={t} label="Nama Yayasan"><input value={identitas.yayasan} onChange={(e) => setIdentitas({ ...identitas, yayasan: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <Field t={t} label="Alamat"><input value={identitas.alamat} onChange={(e) => setIdentitas({ ...identitas, alamat: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <Field t={t} label="Nomor HP"><input value={identitas.hp} onChange={(e) => setIdentitas({ ...identitas, hp: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <Field t={t} label="Email"><input value={identitas.email} onChange={(e) => setIdentitas({ ...identitas, email: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <Field t={t} label="Website"><input value={identitas.website} onChange={(e) => setIdentitas({ ...identitas, website: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <Field t={t} label="Kepala Madrasah"><input value={identitas.kepala} onChange={(e) => setIdentitas({ ...identitas, kepala: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-          <Field t={t} label="Tahun Berdiri"><input value={identitas.tahun} onChange={(e) => setIdentitas({ ...identitas, tahun: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Nama Madrasah"><input value={form.nama_madrasah || ""} onChange={(e) => setForm({ ...form, nama_madrasah: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Nama Yayasan"><input value={form.nama_yayasan || ""} onChange={(e) => setForm({ ...form, nama_yayasan: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Alamat"><input value={form.alamat || ""} onChange={(e) => setForm({ ...form, alamat: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Nomor HP"><input value={form.no_hp || ""} onChange={(e) => setForm({ ...form, no_hp: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Email"><input value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Website"><input value={form.website || ""} onChange={(e) => setForm({ ...form, website: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Kepala Madrasah"><input value={form.kepala_madrasah || ""} onChange={(e) => setForm({ ...form, kepala_madrasah: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Tahun Berdiri"><input value={form.tahun_berdiri || ""} onChange={(e) => setForm({ ...form, tahun_berdiri: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
         </div>
-        <button onClick={() => flash("Identitas madrasah tersimpan")} className="rounded-lg px-5 py-2.5 text-sm font-semibold text-white mt-2" style={{ backgroundColor: EMERALD }}>Simpan Identitas</button>
+        <button onClick={saveIdentitas} disabled={saving} className="rounded-lg px-5 py-2.5 text-sm font-semibold text-white mt-2 disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+          {saving ? "Menyimpan..." : "Simpan Identitas"}
+        </button>
       </div>
     </div>
   );
 }
 
 /* ---------------------------------- PROFIL ---------------------------------- */
-function Profil({ t, role, profileName }) {
+function Profil({ t, role, profileName, userId, fotoUrl, setFotoUrl, flash }) {
   const Icon = roster[role]?.icon || User;
+  const [uploading, setUploading] = useState(false);
+
+  const onFotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { flash("Ukuran file maksimal 2MB", "error"); return; }
+    setUploading(true);
+    const path = `profile-photos/${userId}.${file.name.split(".").pop()}`;
+    const { error: uploadError } = await supabase.storage.from("madani-uploads").upload(path, file, { upsert: true });
+    if (uploadError) { flash("Gagal upload foto: " + uploadError.message, "error"); setUploading(false); return; }
+    const { data: urlData } = supabase.storage.from("madani-uploads").getPublicUrl(path);
+    const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+    const { error: updateError } = await supabase.from("profiles").update({ foto_url: publicUrl }).eq("id", userId);
+    setUploading(false);
+    if (updateError) { flash("Gagal menyimpan foto: " + updateError.message, "error"); return; }
+    setFotoUrl(publicUrl);
+    flash("Foto profil berhasil diperbarui");
+  };
+
   return (
     <div className={`rounded-xl border ${t.border} ${t.panel} p-6 max-w-md`}>
       <div className="flex items-center gap-4 mb-5">
-        <div className="h-16 w-16 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: EMERALD }}><Icon size={26} /></div>
+        {fotoUrl ? (
+          <img src={fotoUrl} alt={profileName} className="h-16 w-16 rounded-full object-cover" />
+        ) : (
+          <div className="h-16 w-16 rounded-full flex items-center justify-center text-white" style={{ backgroundColor: EMERALD }}><Icon size={26} /></div>
+        )}
         <div>
           <p className={`font-semibold ${t.text}`}>{profileName}</p>
           <Badge tone="blue">{role}</Badge>
         </div>
       </div>
+
+      <label className={`flex items-center justify-center gap-2 rounded-lg border ${t.border} ${t.hover} py-2 text-sm cursor-pointer ${t.text} mb-4`}>
+        <Upload size={14} /> {uploading ? "Mengunggah..." : "Ganti Foto Profil"}
+        <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={onFotoUpload} disabled={uploading} />
+      </label>
+
       <div className="space-y-2 text-sm">
         <div className="flex justify-between"><span className={t.textMuted}>Status</span><Badge tone="emerald">Aktif</Badge></div>
       </div>
