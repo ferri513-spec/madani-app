@@ -1223,8 +1223,27 @@ function PenilaianModal({ t, siswa, existing, weekStart, level, userId, onClose,
   );
 }
 
-/* ---------------------------------- REKAP LAPORAN (LAPORAN HARIAN PER LEVEL) ---------------------------------- */
+/* ---------------------------------- REKAP LAPORAN (WRAPPER TAB) ---------------------------------- */
 function RekapLaporan({ t, dark, siswaList, flash }) {
+  const [tab, setTab] = useState("harian");
+  return (
+    <div className="space-y-4">
+      <div className={`flex gap-1 border-b ${t.border}`}>
+        {[{ key: "harian", label: "Laporan Harian" }, { key: "periode", label: "Laporan Periode (Rapor)" }].map((tb) => (
+          <button key={tb.key} onClick={() => setTab(tb.key)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === tb.key ? "border-current" : "border-transparent " + t.textMuted}`}
+            style={tab === tb.key ? { color: EMERALD } : {}}>
+            {tb.label}
+          </button>
+        ))}
+      </div>
+      {tab === "harian" && <RekapHarian t={t} dark={dark} siswaList={siswaList} flash={flash} />}
+      {tab === "periode" && <RekapPeriode t={t} siswaList={siswaList} flash={flash} />}
+    </div>
+  );
+}
+
+/* ---------------------------------- LAPORAN HARIAN PER LEVEL ---------------------------------- */
+function RekapHarian({ t, dark, siswaList, flash }) {
   const [level, setLevel] = useState("Level 1");
   const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
   const [pesanGuru, setPesanGuru] = useState("");
@@ -1388,6 +1407,192 @@ function RekapLaporan({ t, dark, siswaList, flash }) {
               </div>
             </div>
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------- LAPORAN PERIODE (SEMESTER / TAHUNAN) ---------------------------------- */
+function getMode(arr) {
+  if (!arr || arr.length === 0) return "-";
+  const count = {};
+  arr.forEach((v) => { if (v) count[v] = (count[v] || 0) + 1; });
+  const keys = Object.keys(count);
+  if (keys.length === 0) return "-";
+  return keys.reduce((a, b) => (count[a] >= count[b] ? a : b));
+}
+
+function RekapPeriode({ t, siswaList, flash }) {
+  const [level, setLevel] = useState("Level 1");
+  const today = new Date();
+  const [tglMulai, setTglMulai] = useState(new Date(today.getFullYear(), today.getMonth() - 5, 1).toISOString().slice(0, 10));
+  const [tglSelesai, setTglSelesai] = useState(today.toISOString().slice(0, 10));
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [exporting, setExporting] = useState(false);
+
+  const students = siswaList.filter((s) => s.level === level && s.aktif !== false);
+
+  const setPreset = (bulan) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - bulan);
+    setTglMulai(d.toISOString().slice(0, 10));
+    setTglSelesai(new Date().toISOString().slice(0, 10));
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    const ids = students.map((s) => s.id);
+    if (ids.length === 0) { setRows([]); setLoading(false); setLoaded(true); return; }
+
+    const [{ data: att }, { data: tahsin }, { data: hafalan }, { data: nilai }] = await Promise.all([
+      supabase.from("student_attendance").select("*").in("student_id", ids).gte("tanggal", tglMulai).lte("tanggal", tglSelesai),
+      supabase.from("tahsin_progress").select("*").in("student_id", ids).gte("tanggal", tglMulai).lte("tanggal", tglSelesai).order("tanggal", { ascending: false }),
+      supabase.from("memorization_progress").select("*").in("student_id", ids).gte("tanggal", tglMulai).lte("tanggal", tglSelesai).order("tanggal", { ascending: false }),
+      supabase.from("weekly_assessment").select("*").eq("level", level).gte("week_start", tglMulai).lte("week_start", tglSelesai),
+    ]);
+
+    const result = students.map((s) => {
+      const attS = (att || []).filter((r) => r.student_id === s.id);
+      const hadir = attS.filter((r) => r.status === "Hadir").length;
+      const izin = attS.filter((r) => r.status === "Izin").length;
+      const sakit = attS.filter((r) => r.status === "Sakit").length;
+      const alpha = attS.filter((r) => r.status === "Alpha").length;
+      const totalPertemuan = attS.length;
+      const persenHadir = totalPertemuan > 0 ? Math.round((hadir / totalPertemuan) * 100) : 0;
+
+      const tahsinS = (tahsin || []).filter((r) => r.student_id === s.id);
+      const tahsinTerakhir = tahsinS[0] ? `${tahsinS[0].jilid_juz || "-"} hal.${tahsinS[0].halaman || "-"} (${tahsinS[0].status})` : "-";
+
+      const hafalanS = (hafalan || []).filter((r) => r.student_id === s.id && r.status === "Lancar");
+      const surahSelesai = [...new Set(hafalanS.map((r) => r.surah).filter(Boolean))];
+
+      const nilaiS = (nilai || []).filter((r) => r.student_id === s.id);
+      const modusTahsin = getMode(nilaiS.map((r) => r.nilai_tahsin));
+      const modusSikap = getMode(nilaiS.map((r) => r.nilai_sikap));
+      const modusTahfidz = getMode(nilaiS.map((r) => r.nilai_tahfidz));
+      const modusPembelajaran = getMode(nilaiS.map((r) => r.nilai_pembelajaran));
+
+      return {
+        nama: s.nama, nis: s.nis,
+        totalPertemuan, hadir, izin, sakit, alpha, persenHadir,
+        tahsinTerakhir, surahSelesai: surahSelesai.length ? surahSelesai.join(", ") : "-",
+        modusTahsin, modusSikap, modusTahfidz, modusPembelajaran,
+      };
+    });
+
+    setRows(result);
+    setLoading(false);
+    setLoaded(true);
+  };
+
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const dataForSheet = rows.map((r, i) => ({
+        "No": i + 1,
+        "Nama Siswa": r.nama,
+        "NIS": r.nis,
+        "Total Pertemuan": r.totalPertemuan,
+        "Hadir": r.hadir,
+        "Izin": r.izin,
+        "Sakit": r.sakit,
+        "Alpha": r.alpha,
+        "% Kehadiran": r.persenHadir + "%",
+        "Tahsin Terakhir": r.tahsinTerakhir,
+        "Surah Hafalan Selesai": r.surahSelesai,
+        "Nilai Tahsin": r.modusTahsin,
+        "Nilai Sikap": r.modusSikap,
+        "Nilai Tahfidz": r.modusTahfidz,
+        "Nilai Pembelajaran": r.modusPembelajaran,
+      }));
+      const ws = XLSX.utils.json_to_sheet(dataForSheet);
+      ws["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 8 }, { wch: 7 }, { wch: 6 }, { wch: 6 }, { wch: 7 }, { wch: 10 }, { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, level.replace(" ", ""));
+      XLSX.writeFile(wb, `Rapor-${level.replace(" ", "")}-${tglMulai}_sd_${tglSelesai}.xlsx`);
+      flash("Laporan Excel berhasil diunduh");
+    } catch (e) {
+      flash("Gagal membuat Excel: " + e.message, "error");
+    }
+    setExporting(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4 space-y-3`}>
+        <div className="flex flex-wrap gap-3 items-end">
+          <Field t={t} label="Level">
+            <select value={level} onChange={(e) => { setLevel(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+              <option>Level 1</option><option>Level 2</option><option>Level 3</option>
+            </select>
+          </Field>
+          <Field t={t} label="Tanggal Mulai">
+            <input type="date" value={tglMulai} onChange={(e) => { setTglMulai(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+          </Field>
+          <Field t={t} label="Tanggal Selesai">
+            <input type="date" value={tglSelesai} onChange={(e) => { setTglSelesai(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+          </Field>
+          <button onClick={loadData} disabled={loading} className="rounded-lg px-4 py-2 text-sm font-medium text-white h-fit disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+            {loading ? "Memuat..." : "Muat Rekap"}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setPreset(1)} className={`text-xs px-3 py-1.5 rounded-full border ${t.border} ${t.text} ${t.hover}`}>1 Bulan Terakhir</button>
+          <button onClick={() => setPreset(3)} className={`text-xs px-3 py-1.5 rounded-full border ${t.border} ${t.text} ${t.hover}`}>3 Bulan Terakhir</button>
+          <button onClick={() => setPreset(6)} className={`text-xs px-3 py-1.5 rounded-full border ${t.border} ${t.text} ${t.hover}`}>6 Bulan (≈ Semester)</button>
+          <button onClick={() => setPreset(12)} className={`text-xs px-3 py-1.5 rounded-full border ${t.border} ${t.text} ${t.hover}`}>1 Tahun Terakhir</button>
+        </div>
+      </div>
+
+      {loaded && (
+        <>
+          <div className="flex justify-end">
+            <button onClick={exportExcel} disabled={exporting || rows.length === 0} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+              <Download size={14} /> {exporting ? "Memproses..." : "Download Excel (.xlsx)"}
+            </button>
+          </div>
+
+          <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+                  <th className="px-3 py-3 font-medium">Nama</th>
+                  <th className="px-3 py-3 font-medium">Hadir</th>
+                  <th className="px-3 py-3 font-medium">Izin</th>
+                  <th className="px-3 py-3 font-medium">Sakit</th>
+                  <th className="px-3 py-3 font-medium">Alpha</th>
+                  <th className="px-3 py-3 font-medium">% Hadir</th>
+                  <th className="px-3 py-3 font-medium">Tahsin Terakhir</th>
+                  <th className="px-3 py-3 font-medium">Hafalan Selesai</th>
+                  <th className="px-3 py-3 font-medium">Sikap</th>
+                  <th className="px-3 py-3 font-medium">Pembelajaran</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr><td colSpan={10} className={`px-4 py-8 text-center ${t.textMuted}`}>Tidak ada data pada periode ini</td></tr>
+                ) : rows.map((r, i) => (
+                  <tr key={i} className={`border-b ${t.border} last:border-0`}>
+                    <td className={`px-3 py-3 ${t.text} font-medium whitespace-nowrap`}>{r.nama}</td>
+                    <td className={`px-3 py-3 ${t.textMuted}`}>{r.hadir}</td>
+                    <td className={`px-3 py-3 ${t.textMuted}`}>{r.izin}</td>
+                    <td className={`px-3 py-3 ${t.textMuted}`}>{r.sakit}</td>
+                    <td className={`px-3 py-3 ${t.textMuted}`}>{r.alpha}</td>
+                    <td className={`px-3 py-3 ${t.textMuted}`}>{r.persenHadir}%</td>
+                    <td className={`px-3 py-3 ${t.textMuted} whitespace-nowrap`}>{r.tahsinTerakhir}</td>
+                    <td className={`px-3 py-3 ${t.textMuted} max-w-[160px] truncate`} title={r.surahSelesai}>{r.surahSelesai}</td>
+                    <td className="px-3 py-3"><PredikatBadge value={r.modusSikap} /></td>
+                    <td className="px-3 py-3"><PredikatBadge value={r.modusPembelajaran} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className={`text-xs ${t.textMuted}`}>* Kolom Nilai Tahsin & Nilai Tahfidz juga ikut ter-export ke file Excel meski tidak ditampilkan penuh di tabel ini (supaya tabel tidak terlalu lebar).</p>
         </>
       )}
     </div>
