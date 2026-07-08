@@ -48,13 +48,6 @@ const initialSiswa = [
   { id: 8, nama: "Maryam Salsabila", nis: "S008", jk: "P", level: "Level 2", ortu: "Bpk. Dedi", hpOrtu: "081211110008", aktif: true },
 ];
 
-const initialAbsensiGuru = [
-  { id: 1, guru: "Ust. Ahmad Fauzi", tanggal: "2026-07-03", masuk: "15:32", pulang: "17:35", status: "Hadir" },
-  { id: 2, guru: "Ustzh. Siti Nurhaliza", tanggal: "2026-07-03", masuk: "15:28", pulang: "17:30", status: "Hadir" },
-  { id: 3, guru: "Ust. Rizky Ramadhan", tanggal: "2026-07-03", masuk: "15:52", pulang: "17:40", status: "Terlambat" },
-  { id: 4, guru: "Ustzh. Dewi Lestari", tanggal: "2026-07-03", masuk: "-", pulang: "-", status: "Izin" },
-];
-
 const weeklyAttendance = [
   { hari: "Sen", guru: 92, siswa: 88 },
   { hari: "Sel", guru: 95, siswa: 90 },
@@ -153,6 +146,7 @@ export default function MadaniApp() {
   const [settings, setSettings] = useState({
     nama_madrasah: "Madrasah Sore Madani", nama_yayasan: "", alamat: "", no_hp: "",
     email: "", website: "", kepala_madrasah: "", tahun_berdiri: "", logo_url: null,
+    jam_masuk: "15:30", jam_pulang: "17:30",
   });
   const [dark, setDark] = useState(false);
   const [page, setPage] = useState("dashboard");
@@ -200,7 +194,6 @@ export default function MadaniApp() {
   const [guruList, setGuruList] = useState(initialGuru);
   const [siswaList, setSiswaList] = useState([]);
   const [siswaLoading, setSiswaLoading] = useState(true);
-  const [absensiGuru, setAbsensiGuru] = useState(initialAbsensiGuru);
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkInTime, setCheckInTime] = useState(null);
 
@@ -330,7 +323,7 @@ export default function MadaniApp() {
           {page === "dashboard" && <Dashboard t={t} role={role} guruList={guruList} siswaList={siswaList} />}
           {page === "guru" && <DataGuru t={t} guruList={guruList} setGuruList={setGuruList} flash={flash} />}
           {page === "siswa" && <DataSiswa t={t} siswaList={siswaList} setSiswaList={setSiswaList} flash={flash} />}
-          {page === "absensiGuru" && <AbsensiGuru t={t} role={role} profileName={profileName} absensiGuru={absensiGuru} setAbsensiGuru={setAbsensiGuru} checkedIn={checkedIn} setCheckedIn={setCheckedIn} checkInTime={checkInTime} setCheckInTime={setCheckInTime} flash={flash} />}
+          {page === "absensiGuru" && <AbsensiGuru t={t} role={role} profileName={profileName} userId={userId} settings={settings} checkedIn={checkedIn} setCheckedIn={setCheckedIn} checkInTime={checkInTime} setCheckInTime={setCheckInTime} flash={flash} />}
           {page === "catatan" && <CatatanHarian t={t} siswaList={siswaList} checkedIn={checkedIn} role={role} userId={userId} flash={flash} />}
           {page === "pembelajaran" && <JurnalPembelajaran t={t} checkedIn={checkedIn} role={role} userId={userId} profileName={profileName} flash={flash} />}
           {page === "penilaian" && <PenilaianMingguan t={t} checkedIn={checkedIn} role={role} userId={userId} siswaList={siswaList} flash={flash} />}
@@ -687,19 +680,54 @@ function SiswaModal({ t, modal, onClose, onSave }) {
 }
 
 /* ---------------------------------- ABSENSI GURU ---------------------------------- */
-function AbsensiGuru({ t, role, profileName, absensiGuru, setAbsensiGuru, checkedIn, setCheckedIn, checkInTime, setCheckInTime, flash }) {
+function AbsensiGuru({ t, role, profileName, userId, settings, checkedIn, setCheckedIn, checkInTime, setCheckInTime, flash }) {
+  const [riwayat, setRiwayat] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const today = new Date().toISOString().slice(0, 10);
+  const hariIni = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+  const jamMasukPatokan = settings?.jam_masuk || "15:30";
+
+  const fetchRiwayat = async () => {
+    setLoading(true);
+    let query = supabase.from("teacher_attendance").select("*, profiles(nama)").order("tanggal", { ascending: false }).limit(30);
+    if (role === "Guru" && userId) query = query.eq("teacher_id", userId);
+    const { data, error } = await query;
+    if (!error && data) {
+      setRiwayat(data.map((r) => ({
+        id: r.id, guru: r.profiles?.nama || "-", tanggal: r.tanggal,
+        masuk: r.jam_masuk || "-", pulang: r.jam_pulang || "-", status: r.status,
+      })));
+      const todays = data.find((r) => r.teacher_id === userId && r.tanggal === today);
+      if (todays) { setCheckedIn(true); setCheckInTime(todays.jam_masuk); }
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchRiwayat(); }, [role, userId]);
+
   const now = () => new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 
-  const handleCheckIn = () => {
+  const handleCheckIn = async () => {
     const time = now();
+    const status = time > jamMasukPatokan ? "Terlambat" : "Hadir";
+    const { error } = await supabase.from("teacher_attendance").insert({
+      teacher_id: userId, tanggal: today, jam_masuk: time, status,
+    });
+    if (error) { flash("Gagal check-in: " + error.message, "error"); return; }
     setCheckedIn(true); setCheckInTime(time);
-    setAbsensiGuru([{ id: Date.now(), guru: profileName, tanggal: "2026-07-03", masuk: time, pulang: "-", status: time > "15:45" ? "Terlambat" : "Hadir" }, ...absensiGuru]);
-    flash("Check-in berhasil dicatat");
+    flash(status === "Terlambat" ? "Check-in tercatat (Terlambat)" : "Check-in berhasil dicatat");
+    fetchRiwayat();
   };
-  const handleCheckOut = () => {
+
+  const handleCheckOut = async () => {
     const time = now();
-    setAbsensiGuru(absensiGuru.map((a) => (a.guru === profileName && a.pulang === "-" ? { ...a, pulang: time } : a)));
+    const { data: todayRecord } = await supabase.from("teacher_attendance").select("id").eq("teacher_id", userId).eq("tanggal", today).single();
+    if (!todayRecord) { flash("Data check-in hari ini tidak ditemukan", "error"); return; }
+    const { error } = await supabase.from("teacher_attendance").update({ jam_pulang: time }).eq("id", todayRecord.id);
+    if (error) { flash("Gagal check-out: " + error.message, "error"); return; }
     flash("Check-out berhasil dicatat");
+    fetchRiwayat();
   };
 
   if (role === "Guru") {
@@ -707,9 +735,9 @@ function AbsensiGuru({ t, role, profileName, absensiGuru, setAbsensiGuru, checke
       <div className="space-y-5">
         <div className={`rounded-xl border ${t.border} ${t.panel} p-6 text-center max-w-md mx-auto`}>
           <Clock size={28} className="mx-auto mb-2" style={{ color: EMERALD }} />
-          <p className={`text-sm ${t.textMuted}`}>Kamis, 3 Juli 2026</p>
+          <p className={`text-sm ${t.textMuted}`}>{hariIni}</p>
           <p className={`text-3xl font-semibold my-2 ${t.text}`}>{checkInTime || "--:--"}</p>
-          <p className={`text-xs ${t.textMuted} mb-4`}>{checkedIn ? "Anda sudah check-in hari ini" : "Anda belum melakukan absensi hari ini"}</p>
+          <p className={`text-xs ${t.textMuted} mb-4`}>{checkedIn ? "Anda sudah check-in hari ini" : `Anda belum melakukan absensi hari ini · Jam masuk: ${jamMasukPatokan}`}</p>
           {!checkedIn ? (
             <button onClick={handleCheckIn} className="w-full rounded-lg py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Check-In Sekarang</button>
           ) : (
@@ -717,15 +745,15 @@ function AbsensiGuru({ t, role, profileName, absensiGuru, setAbsensiGuru, checke
           )}
           {!checkedIn && <p className="text-[11px] text-red-500 mt-3">Catatan Harian belum bisa diisi sebelum Anda check-in.</p>}
         </div>
-        <RiwayatTable t={t} data={absensiGuru.filter((a) => a.guru === profileName)} />
+        {loading ? <p className={`text-sm ${t.textMuted} text-center`}>Memuat riwayat...</p> : <RiwayatTable t={t} data={riwayat} />}
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <p className={`text-sm ${t.textMuted}`}>Rekap absensi seluruh guru hari ini.</p>
-      <RiwayatTable t={t} data={absensiGuru} showName />
+      <p className={`text-sm ${t.textMuted}`}>Rekap absensi seluruh guru. Patokan jam masuk: <b>{jamMasukPatokan}</b> (bisa diubah di menu Pengaturan).</p>
+      {loading ? <p className={`text-sm ${t.textMuted}`}>Memuat...</p> : <RiwayatTable t={t} data={riwayat} showName />}
     </div>
   );
 }
@@ -842,8 +870,9 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
 
   const handleSaveAbsensi = async () => {
     setSavingAbsensi(true);
+    const jamTercatat = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
     const rows = students.map((s) => ({
-      student_id: s.id, teacher_id: userId, tanggal: today, status: absensi[s.id] || "Hadir",
+      student_id: s.id, teacher_id: userId, tanggal: today, status: absensi[s.id] || "Hadir", jam_tercatat: jamTercatat,
     }));
     const { error } = await supabase.from("student_attendance").upsert(rows, { onConflict: "student_id,tanggal" });
     setSavingAbsensi(false);
@@ -1358,7 +1387,7 @@ function RekapLaporan({ t, dark, siswaList, settings, flash }) {
         ))}
       </div>
       {tab === "harian" && <RekapHarian t={t} dark={dark} siswaList={siswaList} settings={settings} flash={flash} />}
-      {tab === "periode" && <RekapPeriode t={t} siswaList={siswaList} flash={flash} />}
+      {tab === "periode" && <RekapPeriode t={t} siswaList={siswaList} settings={settings} flash={flash} />}
     </div>
   );
 }
@@ -1548,7 +1577,7 @@ function getMode(arr) {
   return keys.reduce((a, b) => (count[a] >= count[b] ? a : b));
 }
 
-function RekapPeriode({ t, siswaList, flash }) {
+function RekapPeriode({ t, siswaList, settings, flash }) {
   const [level, setLevel] = useState("Level 1");
   const today = new Date();
   const [tglMulai, setTglMulai] = useState(new Date(today.getFullYear(), today.getMonth() - 5, 1).toISOString().slice(0, 10));
@@ -1600,11 +1629,17 @@ function RekapPeriode({ t, siswaList, flash }) {
       const modusTahfidz = getMode(nilaiS.map((r) => r.nilai_tahfidz));
       const modusPembelajaran = getMode(nilaiS.map((r) => r.nilai_pembelajaran));
 
+      const jamMasukPatokan = settings?.jam_masuk || "15:30";
+      const hadirRecords = attS.filter((r) => r.status === "Hadir" && r.jam_tercatat);
+      const tepatWaktu = hadirRecords.filter((r) => r.jam_tercatat <= jamMasukPatokan).length;
+      const terlambat = hadirRecords.filter((r) => r.jam_tercatat > jamMasukPatokan).length;
+
       return {
         nama: s.nama, nis: s.nis,
         totalPertemuan, hadir, izin, sakit, alpha, persenHadir,
         tahsinTerakhir, surahSelesai: surahSelesai.length ? surahSelesai.join(", ") : "-",
         modusTahsin, modusSikap, modusTahfidz, modusPembelajaran,
+        tepatWaktu, terlambat,
       };
     });
 
@@ -1627,6 +1662,8 @@ function RekapPeriode({ t, siswaList, flash }) {
         "Sakit": r.sakit,
         "Alpha": r.alpha,
         "% Kehadiran": r.persenHadir + "%",
+        "Hari Tepat Waktu": r.tepatWaktu,
+        "Hari Terlambat": r.terlambat,
         "Tahsin Terakhir": r.tahsinTerakhir,
         "Surah Hafalan Selesai": r.surahSelesai,
         "Nilai Tahsin": r.modusTahsin,
@@ -1635,7 +1672,7 @@ function RekapPeriode({ t, siswaList, flash }) {
         "Nilai Pembelajaran": r.modusPembelajaran,
       }));
       const ws = XLSX.utils.json_to_sheet(dataForSheet);
-      ws["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 8 }, { wch: 7 }, { wch: 6 }, { wch: 6 }, { wch: 7 }, { wch: 10 }, { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
+      ws["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 8 }, { wch: 7 }, { wch: 6 }, { wch: 6 }, { wch: 7 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, level.replace(" ", ""));
       XLSX.writeFile(wb, `Rapor-${level.replace(" ", "")}-${tglMulai}_sd_${tglSelesai}.xlsx`);
@@ -1691,6 +1728,8 @@ function RekapPeriode({ t, siswaList, flash }) {
                   <th className="px-3 py-3 font-medium">Sakit</th>
                   <th className="px-3 py-3 font-medium">Alpha</th>
                   <th className="px-3 py-3 font-medium">% Hadir</th>
+                  <th className="px-3 py-3 font-medium">Tepat Waktu</th>
+                  <th className="px-3 py-3 font-medium">Terlambat</th>
                   <th className="px-3 py-3 font-medium">Tahsin Terakhir</th>
                   <th className="px-3 py-3 font-medium">Hafalan Selesai</th>
                   <th className="px-3 py-3 font-medium">Sikap</th>
@@ -1699,7 +1738,7 @@ function RekapPeriode({ t, siswaList, flash }) {
               </thead>
               <tbody>
                 {rows.length === 0 ? (
-                  <tr><td colSpan={10} className={`px-4 py-8 text-center ${t.textMuted}`}>Tidak ada data pada periode ini</td></tr>
+                  <tr><td colSpan={12} className={`px-4 py-8 text-center ${t.textMuted}`}>Tidak ada data pada periode ini</td></tr>
                 ) : rows.map((r, i) => (
                   <tr key={i} className={`border-b ${t.border} last:border-0`}>
                     <td className={`px-3 py-3 ${t.text} font-medium whitespace-nowrap`}>{r.nama}</td>
@@ -1708,6 +1747,8 @@ function RekapPeriode({ t, siswaList, flash }) {
                     <td className={`px-3 py-3 ${t.textMuted}`}>{r.sakit}</td>
                     <td className={`px-3 py-3 ${t.textMuted}`}>{r.alpha}</td>
                     <td className={`px-3 py-3 ${t.textMuted}`}>{r.persenHadir}%</td>
+                    <td className={`px-3 py-3 ${t.textMuted}`}>{r.tepatWaktu}</td>
+                    <td className={`px-3 py-3 ${t.textMuted}`}>{r.terlambat}</td>
                     <td className={`px-3 py-3 ${t.textMuted} whitespace-nowrap`}>{r.tahsinTerakhir}</td>
                     <td className={`px-3 py-3 ${t.textMuted} max-w-[160px] truncate`} title={r.surahSelesai}>{r.surahSelesai}</td>
                     <td className="px-3 py-3"><PredikatBadge value={r.modusSikap} /></td>
@@ -1762,6 +1803,7 @@ function Pengaturan({ t, settings, setSettings, flash }) {
       nama_madrasah: form.nama_madrasah, nama_yayasan: form.nama_yayasan, alamat: form.alamat,
       no_hp: form.no_hp, email: form.email, website: form.website,
       kepala_madrasah: form.kepala_madrasah, tahun_berdiri: form.tahun_berdiri,
+      jam_masuk: form.jam_masuk, jam_pulang: form.jam_pulang,
     }).eq("id", 1);
     setSaving(false);
     if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
@@ -1795,7 +1837,10 @@ function Pengaturan({ t, settings, setSettings, flash }) {
           <Field t={t} label="Website"><input value={form.website || ""} onChange={(e) => setForm({ ...form, website: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
           <Field t={t} label="Kepala Madrasah"><input value={form.kepala_madrasah || ""} onChange={(e) => setForm({ ...form, kepala_madrasah: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
           <Field t={t} label="Tahun Berdiri"><input value={form.tahun_berdiri || ""} onChange={(e) => setForm({ ...form, tahun_berdiri: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Jam Masuk (patokan tepat waktu)"><input type="time" value={form.jam_masuk || "15:30"} onChange={(e) => setForm({ ...form, jam_masuk: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+          <Field t={t} label="Jam Pulang"><input type="time" value={form.jam_pulang || "17:30"} onChange={(e) => setForm({ ...form, jam_pulang: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
         </div>
+        <p className={`text-[11px] mb-2 ${t.textMuted}`}>Jam Masuk dipakai sebagai patokan status "Terlambat/Tepat Waktu" pada Absensi Guru dan Absensi Siswa. Keterangan ini akan muncul di Laporan Excel (Periode), tidak ditampilkan di Laporan Harian (PNG/JPEG).</p>
         <button onClick={saveIdentitas} disabled={saving} className="rounded-lg px-5 py-2.5 text-sm font-semibold text-white mt-2 disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
           {saving ? "Menyimpan..." : "Simpan Identitas"}
         </button>
