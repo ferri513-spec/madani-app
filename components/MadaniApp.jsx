@@ -686,7 +686,7 @@ function AbsensiGuru({ t, role, profileName, userId, settings, checkedIn, setChe
   const today = new Date().toISOString().slice(0, 10);
   const hariIni = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-  const jamMasukPatokan = settings?.jam_masuk || "15:30";
+  const jamMasukPatokan = (settings?.jam_masuk || "15:30").slice(0, 5);
 
   const fetchRiwayat = async () => {
     setLoading(true);
@@ -706,7 +706,7 @@ function AbsensiGuru({ t, role, profileName, userId, settings, checkedIn, setChe
 
   useEffect(() => { fetchRiwayat(); }, [role, userId]);
 
-  const now = () => new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  const now = () => nowHHMM();
 
   const handleCheckIn = async () => {
     const time = now();
@@ -870,7 +870,7 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
 
   const handleSaveAbsensi = async () => {
     setSavingAbsensi(true);
-    const jamTercatat = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    const jamTercatat = nowHHMM();
     const rows = students.map((s) => ({
       student_id: s.id, teacher_id: userId, tanggal: today, status: absensi[s.id] || "Hadir", jam_tercatat: jamTercatat,
     }));
@@ -1176,6 +1176,13 @@ function JurnalPembelajaran({ t, checkedIn, role, userId, profileName, flash }) 
 
 /* ---------------------------------- PENILAIAN MINGGUAN ---------------------------------- */
 const PREDIKAT_OPTIONS = ["Sangat Baik", "Baik", "Cukup", "Perlu Bimbingan"];
+
+function nowHHMM() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
 
 function getWeekStart(date = new Date()) {
   const d = new Date(date);
@@ -1629,7 +1636,7 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
       const modusTahfidz = getMode(nilaiS.map((r) => r.nilai_tahfidz));
       const modusPembelajaran = getMode(nilaiS.map((r) => r.nilai_pembelajaran));
 
-      const jamMasukPatokan = settings?.jam_masuk || "15:30";
+      const jamMasukPatokan = (settings?.jam_masuk || "15:30").slice(0, 5);
       const hadirRecords = attS.filter((r) => r.status === "Hadir" && r.jam_tercatat);
       const tepatWaktu = hadirRecords.filter((r) => r.jam_tercatat <= jamMasukPatokan).length;
       const terlambat = hadirRecords.filter((r) => r.jam_tercatat > jamMasukPatokan).length;
