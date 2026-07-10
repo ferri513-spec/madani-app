@@ -1759,6 +1759,7 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [rows, setRows] = useState([]);
+  const [materiList, setMateriList] = useState([]);
   const [exporting, setExporting] = useState(false);
 
   const students = siswaList.filter((s) => s.level === level && s.aktif !== false);
@@ -1818,6 +1819,11 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
     });
 
     setRows(result);
+
+    const { data: jurnalData, error: jurnalError } = await supabase.from("teaching_journal").select("*").eq("level", level).gte("tanggal", tglMulai).lte("tanggal", tglSelesai).order("tanggal", { ascending: false });
+    if (jurnalError) { flash("Gagal memuat materi: " + jurnalError.message, "error"); }
+    setMateriList(jurnalData || []);
+
     setLoading(false);
     setLoaded(true);
   };
@@ -1864,13 +1870,12 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
       XLSX.utils.book_append_sheet(wb, ws, level.replace(" ", ""));
 
       // Sheet ke-2: Materi/Topik Pembelajaran selama periode ini
-      const { data: jurnalData } = await supabase.from("teaching_journal").select("*").eq("level", level).gte("tanggal", tglMulai).lte("tanggal", tglSelesai).order("tanggal");
       const materiHeaderRows = [
         ["MATERI / TOPIK PEMBELAJARAN"],
         [`Level: ${level}  ·  Periode: ${fmtTgl(tglMulai)} s/d ${fmtTgl(tglSelesai)}`],
         [],
       ];
-      const materiData = (jurnalData || []).map((j) => ({
+      const materiData = [...materiList].sort((a, b) => a.tanggal.localeCompare(b.tanggal)).map((j) => ({
         "Tanggal": j.tanggal,
         "Hari": fmtTgl(j.tanggal).split(",")[0] || fmtTgl(j.tanggal),
         "Materi / Topik": j.materi,
@@ -1967,6 +1972,26 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
             </table>
           </div>
           <p className={`text-xs ${t.textMuted}`}>* Kolom Nilai Tahsin & Nilai Tahfidz juga ikut ter-export ke file Excel meski tidak ditampilkan penuh di tabel ini (supaya tabel tidak terlalu lebar).</p>
+
+          <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+            <p className={`text-sm font-semibold mb-3 ${t.text}`}>Materi / Topik Pembelajaran Selama Periode Ini</p>
+            {materiList.length === 0 ? (
+              <p className={`text-sm ${t.textMuted}`}>Belum ada Jurnal Pembelajaran tercatat untuk {level} pada periode ini. Isi lewat menu <b>Jurnal Pembelajaran</b> terlebih dahulu.</p>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {[...materiList].sort((a, b) => b.tanggal.localeCompare(a.tanggal)).map((j) => (
+                  <div key={j.id} className={`rounded-lg border ${t.border} px-3 py-2`}>
+                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                      <span className={`text-xs font-semibold ${t.text}`}>{j.tanggal}</span>
+                    </div>
+                    <p className={`text-sm ${t.text}`}>{j.materi}</p>
+                    {j.metode && <p className={`text-xs ${t.textMuted}`}>Metode: {j.metode}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className={`text-[11px] mt-2 ${t.textMuted}`}>* Data lengkap (termasuk Tujuan & Evaluasi) ikut ter-export sebagai sheet terpisah "Materi Pembelajaran" di file Excel.</p>
+          </div>
         </>
       )}
     </div>
