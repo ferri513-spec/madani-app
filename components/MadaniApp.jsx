@@ -1564,6 +1564,7 @@ function RekapHarian({ t, dark, siswaList, settings, flash }) {
   const [rows, setRows] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [materiHariIni, setMateriHariIni] = useState(null);
   const reportRef = React.useRef(null);
 
   const students = siswaList.filter((s) => s.level === level && s.aktif !== false);
@@ -1573,12 +1574,15 @@ function RekapHarian({ t, dark, siswaList, settings, flash }) {
     const ids = students.map((s) => s.id);
     const weekStart = getWeekStart(new Date(tanggal));
 
-    const [{ data: att }, { data: tahsin }, { data: hafalan }, { data: nilai }] = await Promise.all([
+    const [{ data: att }, { data: tahsin }, { data: hafalan }, { data: nilai }, { data: jurnal }] = await Promise.all([
       ids.length ? supabase.from("student_attendance").select("*").in("student_id", ids).eq("tanggal", tanggal) : { data: [] },
       ids.length ? supabase.from("tahsin_progress").select("*").in("student_id", ids).eq("tanggal", tanggal).order("created_at", { ascending: false }) : { data: [] },
       ids.length ? supabase.from("memorization_progress").select("*").in("student_id", ids).eq("tanggal", tanggal).order("created_at", { ascending: false }) : { data: [] },
       ids.length ? supabase.from("weekly_assessment").select("*").eq("level", level).eq("week_start", weekStart) : { data: [] },
+      supabase.from("teaching_journal").select("*").eq("level", level).eq("tanggal", tanggal).order("created_at", { ascending: false }).limit(1),
     ]);
+
+    setMateriHariIni(jurnal && jurnal.length > 0 ? jurnal[0] : null);
 
     const attMap = {}; (att || []).forEach((r) => { attMap[r.student_id] = r; });
     const tahsinMap = {}; (tahsin || []).forEach((r) => { if (!tahsinMap[r.student_id]) tahsinMap[r.student_id] = r; });
@@ -1681,6 +1685,13 @@ function RekapHarian({ t, dark, siswaList, settings, flash }) {
                   <p className="text-sm font-bold" style={{ color: EMERALD }}>{hadirCount} / {rows.length} Siswa</p>
                 </div>
               </div>
+
+              {materiHariIni && (
+                <div className="mx-6 mt-2 rounded-xl px-4 py-2.5" style={{ backgroundColor: "#f0f9f5" }}>
+                  <p className="text-[11px] font-semibold" style={{ color: EMERALD }}>Materi / Topik Pembelajaran Hari Ini</p>
+                  <p className="text-xs text-gray-700">{materiHariIni.materi}</p>
+                </div>
+              )}
 
               <div className="px-6 pb-4 pt-3 space-y-3">
                 {rows.length === 0 && (
@@ -1815,6 +1826,18 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
+
+      const hariTanggalCetak = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+      const fmtTgl = (iso) => new Date(iso).toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
+      const headerRows = [
+        ["LAPORAN REKAP PERIODE (RAPOR)"],
+        ["Madrasah Sore Madani"],
+        [`Level: ${level}`],
+        [`Periode: ${fmtTgl(tglMulai)}  s/d  ${fmtTgl(tglSelesai)}`],
+        [`Dicetak pada: ${hariTanggalCetak}`],
+        [],
+      ];
       const dataForSheet = rows.map((r, i) => ({
         "No": i + 1,
         "Nama Siswa": r.nama,
@@ -1834,10 +1857,32 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
         "Nilai Tahfidz": r.modusTahfidz,
         "Nilai Pembelajaran": r.modusPembelajaran,
       }));
-      const ws = XLSX.utils.json_to_sheet(dataForSheet);
+      const ws = XLSX.utils.aoa_to_sheet(headerRows);
+      XLSX.utils.sheet_add_json(ws, dataForSheet, { origin: -1, skipHeader: false });
       ws["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 8 }, { wch: 7 }, { wch: 6 }, { wch: 6 }, { wch: 7 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, level.replace(" ", ""));
+
+      // Sheet ke-2: Materi/Topik Pembelajaran selama periode ini
+      const { data: jurnalData } = await supabase.from("teaching_journal").select("*").eq("level", level).gte("tanggal", tglMulai).lte("tanggal", tglSelesai).order("tanggal");
+      const materiHeaderRows = [
+        ["MATERI / TOPIK PEMBELAJARAN"],
+        [`Level: ${level}  ·  Periode: ${fmtTgl(tglMulai)} s/d ${fmtTgl(tglSelesai)}`],
+        [],
+      ];
+      const materiData = (jurnalData || []).map((j) => ({
+        "Tanggal": j.tanggal,
+        "Hari": fmtTgl(j.tanggal).split(",")[0] || fmtTgl(j.tanggal),
+        "Materi / Topik": j.materi,
+        "Metode": j.metode || "-",
+        "Tujuan Pembelajaran": j.tujuan || "-",
+        "Evaluasi / Kendala": j.evaluasi || "-",
+      }));
+      const wsMateri = XLSX.utils.aoa_to_sheet(materiHeaderRows);
+      XLSX.utils.sheet_add_json(wsMateri, materiData, { origin: -1, skipHeader: false });
+      wsMateri["!cols"] = [{ wch: 12 }, { wch: 10 }, { wch: 28 }, { wch: 20 }, { wch: 30 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, wsMateri, "Materi Pembelajaran");
+
       XLSX.writeFile(wb, `Rapor-${level.replace(" ", "")}-${tglMulai}_sd_${tglSelesai}.xlsx`);
       flash("Laporan Excel berhasil diunduh");
     } catch (e) {
