@@ -730,6 +730,14 @@ function AbsensiGuru({ t, role, profileName, userId, settings, checkedIn, setChe
     fetchRiwayat();
   };
 
+  const hapusAbsensiGuru = async (id) => {
+    if (!window.confirm("Hapus catatan absensi ini?")) return;
+    const { error } = await supabase.from("teacher_attendance").delete().eq("id", id);
+    if (error) { flash("Gagal menghapus: " + error.message, "error"); return; }
+    flash("Catatan absensi dihapus", "error");
+    fetchRiwayat();
+  };
+
   if (role === "Guru") {
     return (
       <div className="space-y-5">
@@ -751,14 +759,156 @@ function AbsensiGuru({ t, role, profileName, userId, settings, checkedIn, setChe
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <p className={`text-sm ${t.textMuted}`}>Rekap absensi seluruh guru. Patokan jam masuk: <b>{jamMasukPatokan}</b> (bisa diubah di menu Pengaturan).</p>
-      {loading ? <p className={`text-sm ${t.textMuted}`}>Memuat...</p> : <RiwayatTable t={t} data={riwayat} showName />}
+      <RekapAbsensiExcel t={t} flash={flash} />
+      <div>
+        <p className={`text-sm font-semibold mb-2 ${t.text}`}>Riwayat Terbaru (30 catatan terakhir)</p>
+        {loading ? <p className={`text-sm ${t.textMuted}`}>Memuat...</p> : <RiwayatTable t={t} data={riwayat} showName onDelete={hapusAbsensiGuru} />}
+      </div>
     </div>
   );
 }
 
-function RiwayatTable({ t, data, showName }) {
+function RekapAbsensiExcel({ t, flash }) {
+  const today = new Date();
+  const [tglMulai, setTglMulai] = useState(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6).toISOString().slice(0, 10));
+  const [tglSelesai, setTglSelesai] = useState(today.toISOString().slice(0, 10));
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [exporting, setExporting] = useState(false);
+
+  const setPreset = (kind) => {
+    const d = new Date();
+    if (kind === "minggu") d.setDate(d.getDate() - 6);
+    if (kind === "bulan") d.setMonth(d.getMonth() - 1);
+    if (kind === "semester") d.setMonth(d.getMonth() - 6);
+    setTglMulai(d.toISOString().slice(0, 10));
+    setTglSelesai(new Date().toISOString().slice(0, 10));
+    setLoaded(false);
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("teacher_attendance").select("*, profiles(nama)").gte("tanggal", tglMulai).lte("tanggal", tglSelesai).order("tanggal");
+    if (error) { flash("Gagal memuat: " + error.message, "error"); setLoading(false); return; }
+    const map = {};
+    (data || []).forEach((r) => {
+      const key = r.teacher_id;
+      if (!map[key]) map[key] = { nama: r.profiles?.nama || "-", totalHari: 0, hadir: 0, terlambat: 0, izin: 0, sakit: 0, alpha: 0, totalMenit: 0 };
+      map[key].totalHari++;
+      if (r.status === "Hadir") map[key].hadir++;
+      else if (r.status === "Terlambat") map[key].terlambat++;
+      else if (r.status === "Izin") map[key].izin++;
+      else if (r.status === "Sakit") map[key].sakit++;
+      else if (r.status === "Alpha") map[key].alpha++;
+      if (r.jam_masuk && r.jam_pulang) {
+        const [h1, m1] = r.jam_masuk.split(":").map(Number);
+        const [h2, m2] = r.jam_pulang.split(":").map(Number);
+        const diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+        if (diff > 0) map[key].totalMenit += diff;
+      }
+    });
+    setRows(Object.values(map));
+    setLoading(false);
+    setLoaded(true);
+  };
+
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const dataForSheet = rows.map((r, i) => ({
+        "No": i + 1,
+        "Nama Guru": r.nama,
+        "Total Hari Tercatat": r.totalHari,
+        "Hadir": r.hadir,
+        "Terlambat": r.terlambat,
+        "Izin": r.izin,
+        "Sakit": r.sakit,
+        "Alpha": r.alpha,
+        "% Kehadiran": r.totalHari ? Math.round(((r.hadir + r.terlambat) / r.totalHari) * 100) + "%" : "0%",
+        "Total Jam Mengajar": `${Math.floor(r.totalMenit / 60)}j ${r.totalMenit % 60}m`,
+      }));
+      const ws = XLSX.utils.json_to_sheet(dataForSheet);
+      ws["!cols"] = [{ wch: 4 }, { wch: 24 }, { wch: 14 }, { wch: 8 }, { wch: 10 }, { wch: 7 }, { wch: 7 }, { wch: 7 }, { wch: 12 }, { wch: 16 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Absensi Guru");
+      XLSX.writeFile(wb, `Rekap-Absensi-Guru-${tglMulai}_sd_${tglSelesai}.xlsx`);
+      flash("Rekap absensi guru berhasil diunduh");
+    } catch (e) {
+      flash("Gagal membuat Excel: " + e.message, "error");
+    }
+    setExporting(false);
+  };
+
+  return (
+    <div className={`rounded-xl border ${t.border} ${t.panel} p-4 space-y-3`}>
+      <p className={`text-sm font-semibold ${t.text}`}>Rekap Absensi Guru (Excel)</p>
+      <div className="flex flex-wrap gap-3 items-end">
+        <Field t={t} label="Tanggal Mulai">
+          <input type="date" value={tglMulai} onChange={(e) => { setTglMulai(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <Field t={t} label="Tanggal Selesai">
+          <input type="date" value={tglSelesai} onChange={(e) => { setTglSelesai(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <button onClick={loadData} disabled={loading} className="rounded-lg px-4 py-2 text-sm font-medium text-white h-fit disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+          {loading ? "Memuat..." : "Muat Rekap"}
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => setPreset("minggu")} className={`text-xs px-3 py-1.5 rounded-full border ${t.border} ${t.text} ${t.hover}`}>1 Pekan Terakhir</button>
+        <button onClick={() => setPreset("bulan")} className={`text-xs px-3 py-1.5 rounded-full border ${t.border} ${t.text} ${t.hover}`}>1 Bulan Terakhir</button>
+        <button onClick={() => setPreset("semester")} className={`text-xs px-3 py-1.5 rounded-full border ${t.border} ${t.text} ${t.hover}`}>Per Semester (6 Bulan)</button>
+      </div>
+
+      {loaded && (
+        <>
+          <div className="flex justify-end">
+            <button onClick={exportExcel} disabled={exporting || rows.length === 0} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+              <Download size={14} /> {exporting ? "Memproses..." : "Download Excel (.xlsx)"}
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+                  <th className="px-3 py-2 font-medium">Nama Guru</th>
+                  <th className="px-3 py-2 font-medium">Hadir</th>
+                  <th className="px-3 py-2 font-medium">Terlambat</th>
+                  <th className="px-3 py-2 font-medium">Izin</th>
+                  <th className="px-3 py-2 font-medium">Sakit</th>
+                  <th className="px-3 py-2 font-medium">Alpha</th>
+                  <th className="px-3 py-2 font-medium">% Hadir</th>
+                  <th className="px-3 py-2 font-medium">Jam Mengajar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr><td colSpan={8} className={`px-3 py-6 text-center ${t.textMuted}`}>Tidak ada data pada periode ini</td></tr>
+                ) : rows.map((r, i) => (
+                  <tr key={i} className={`border-b ${t.border} last:border-0`}>
+                    <td className={`px-3 py-2 ${t.text} font-medium whitespace-nowrap`}>{r.nama}</td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{r.hadir}</td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{r.terlambat}</td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{r.izin}</td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{r.sakit}</td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{r.alpha}</td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{r.totalHari ? Math.round(((r.hadir + r.terlambat) / r.totalHari) * 100) : 0}%</td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{Math.floor(r.totalMenit / 60)}j {r.totalMenit % 60}m</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RiwayatTable({ t, data, showName, onDelete }) {
   return (
     <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
       <table className="w-full text-sm">
@@ -769,6 +919,7 @@ function RiwayatTable({ t, data, showName }) {
             <th className="px-4 py-3 font-medium">Jam Masuk</th>
             <th className="px-4 py-3 font-medium">Jam Pulang</th>
             <th className="px-4 py-3 font-medium">Status</th>
+            {onDelete && <th className="px-4 py-3 font-medium text-right">Aksi</th>}
           </tr>
         </thead>
         <tbody>
@@ -779,9 +930,14 @@ function RiwayatTable({ t, data, showName }) {
               <td className={`px-4 py-3 ${t.textMuted}`}>{a.masuk}</td>
               <td className={`px-4 py-3 ${t.textMuted}`}>{a.pulang}</td>
               <td className="px-4 py-3"><StatusBadge status={a.status} /></td>
+              {onDelete && (
+                <td className="px-4 py-3 text-right">
+                  <button onClick={() => onDelete(a.id)} className="p-1.5 rounded-md hover:bg-red-50"><Trash2 size={14} className="text-red-500" /></button>
+                </td>
+              )}
             </tr>
           ))}
-          {data.length === 0 && <tr><td colSpan={5} className={`px-4 py-8 text-center ${t.textMuted}`}>Belum ada riwayat</td></tr>}
+          {data.length === 0 && <tr><td colSpan={onDelete ? 6 : 5} className={`px-4 py-8 text-center ${t.textMuted}`}>Belum ada riwayat</td></tr>}
         </tbody>
       </table>
     </div>
