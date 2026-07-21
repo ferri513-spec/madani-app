@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, GraduationCap, ClipboardCheck, BookOpenCheck,
   FileBarChart2, Settings, LogOut, Search, Plus, Pencil, Trash2, Sun, Moon,
   Menu, X, Download, Printer, CheckCircle2, Clock, Bell, ChevronRight,
-  Upload, Image as ImageIcon, PenTool, User, ShieldCheck, TrendingUp, BookOpen, Award
+  Upload, Image as ImageIcon, PenTool, User, ShieldCheck, TrendingUp, BookOpen, Award, Wallet
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis,
@@ -28,25 +28,8 @@ const EMERALD = "#059669";
 const EMERALD_DARK = "#047857";
 const GOLD = "#c9a227";
 
-/* ---------------------------------- MOCK DATA ---------------------------------- */
-const initialGuru = [
-  { id: 1, nama: "Ust. Ahmad Fauzi", nik: "3271010101900001", hp: "081234560001", email: "ahmad.fauzi@madani.sch.id", alamat: "Depok, Jawa Barat", username: "ahmadfauzi", role: "Guru", aktif: true },
-  { id: 2, nama: "Ustzh. Siti Nurhaliza", nik: "3271010101920002", hp: "081234560002", email: "siti.n@madani.sch.id", alamat: "Depok, Jawa Barat", username: "sitin", role: "Guru", aktif: true },
-  { id: 3, nama: "Ust. Rizky Ramadhan", nik: "3271010101930003", hp: "081234560003", email: "rizky.r@madani.sch.id", alamat: "Cimanggis, Depok", username: "rizkyr", role: "Guru", aktif: true },
-  { id: 4, nama: "Ustzh. Dewi Lestari", nik: "3271010101940004", hp: "081234560004", email: "dewi.l@madani.sch.id", alamat: "Sawangan, Depok", username: "dewil", role: "Admin", aktif: true },
-  { id: 5, nama: "Ust. Hasan Albana", nik: "3271010101950005", hp: "081234560005", email: "hasan.a@madani.sch.id", alamat: "Beji, Depok", username: "hasana", role: "Guru", aktif: false },
-];
-
-const initialSiswa = [
-  { id: 1, nama: "Ahmad Zaki", nis: "S001", jk: "L", level: "Level 1", ortu: "Bpk. Wahyu", hpOrtu: "081211110001", aktif: true },
-  { id: 2, nama: "Fatimah Az-Zahra", nis: "S002", jk: "P", level: "Level 1", ortu: "Bpk. Ridwan", hpOrtu: "081211110002", aktif: true },
-  { id: 3, nama: "Umar Faruq", nis: "S003", jk: "L", level: "Level 2", ortu: "Bpk. Slamet", hpOrtu: "081211110003", aktif: true },
-  { id: 4, nama: "Khadijah Putri", nis: "S004", jk: "P", level: "Level 2", ortu: "Ibu Ratna", hpOrtu: "081211110004", aktif: true },
-  { id: 5, nama: "Ali Ridho", nis: "S005", jk: "L", level: "Level 3", ortu: "Bpk. Hendra", hpOrtu: "081211110005", aktif: true },
-  { id: 6, nama: "Aisyah Nur", nis: "S006", jk: "P", level: "Level 3", ortu: "Ibu Siti", hpOrtu: "081211110006", aktif: true },
-  { id: 7, nama: "Yusuf Al-Amin", nis: "S007", jk: "L", level: "Level 1", ortu: "Bpk. Agus", hpOrtu: "081211110007", aktif: true },
-  { id: 8, nama: "Maryam Salsabila", nis: "S008", jk: "P", level: "Level 2", ortu: "Bpk. Dedi", hpOrtu: "081211110008", aktif: true },
-];
+/* ---------------------------------- KONSTANTA LEVEL ---------------------------------- */
+const LEVELS = ["Level 1A", "Level 1B", "Level 2", "Level 3"];
 
 const weeklyAttendance = [
   { hari: "Sen", guru: 92, siswa: 88 },
@@ -191,7 +174,6 @@ export default function MadaniApp() {
   };
 
   /* ---- data state ---- */
-  const [guruList, setGuruList] = useState(initialGuru);
   const [siswaList, setSiswaList] = useState([]);
   const [siswaLoading, setSiswaLoading] = useState(true);
   const [checkedIn, setCheckedIn] = useState(false);
@@ -225,6 +207,7 @@ export default function MadaniApp() {
       { key: "pembelajaran", label: "Jurnal Pembelajaran", icon: BookOpen, roles: ["Super Admin", "Admin", "Guru"] },
       { key: "penilaian", label: "Penilaian Mingguan", icon: Award, roles: ["Super Admin", "Admin", "Guru"] },
       { key: "rekap", label: "Rekapan Laporan", icon: FileBarChart2, roles: ["Super Admin", "Admin", "Guru"] },
+      { key: "spp", label: "Rekap SPP Santri", icon: Wallet, roles: ["Super Admin", "Admin"] },
       { key: "pengaturan", label: "Pengaturan", icon: Settings, roles: ["Super Admin", "Admin"] },
     ];
     return all.filter((i) => i.roles.includes(role));
@@ -320,14 +303,15 @@ export default function MadaniApp() {
 
         {/* CONTENT */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          {page === "dashboard" && <Dashboard t={t} role={role} guruList={guruList} siswaList={siswaList} />}
-          {page === "guru" && <DataGuru t={t} guruList={guruList} setGuruList={setGuruList} flash={flash} />}
+          {page === "dashboard" && <Dashboard t={t} role={role} siswaList={siswaList} />}
+          {page === "guru" && <DataGuru t={t} flash={flash} />}
           {page === "siswa" && <DataSiswa t={t} siswaList={siswaList} setSiswaList={setSiswaList} flash={flash} />}
           {page === "absensiGuru" && <AbsensiGuru t={t} role={role} profileName={profileName} userId={userId} settings={settings} checkedIn={checkedIn} setCheckedIn={setCheckedIn} checkInTime={checkInTime} setCheckInTime={setCheckInTime} flash={flash} />}
           {page === "catatan" && <CatatanHarian t={t} siswaList={siswaList} checkedIn={checkedIn} role={role} userId={userId} flash={flash} />}
           {page === "pembelajaran" && <JurnalPembelajaran t={t} checkedIn={checkedIn} role={role} userId={userId} profileName={profileName} flash={flash} />}
           {page === "penilaian" && <PenilaianMingguan t={t} checkedIn={checkedIn} role={role} userId={userId} siswaList={siswaList} flash={flash} />}
           {page === "rekap" && <RekapLaporan t={t} dark={dark} siswaList={siswaList} settings={settings} flash={flash} />}
+          {page === "spp" && <RekapSPP t={t} siswaList={siswaList} userId={userId} flash={flash} />}
           {page === "pengaturan" && <Pengaturan t={t} settings={settings} setSettings={setSettings} flash={flash} />}
           {page === "profil" && <Profil t={t} role={role} profileName={profileName} userId={userId} fotoUrl={profileFotoUrl} setFotoUrl={setProfileFotoUrl} flash={flash} />}
         </main>
@@ -388,17 +372,26 @@ function LoginScreen({ t, dark, setDark, onLoginSuccess }) {
 }
 
 /* ---------------------------------- DASHBOARD ---------------------------------- */
-function Dashboard({ t, role, guruList, siswaList }) {
+function Dashboard({ t, role, siswaList }) {
+  const [jumlahGuru, setJumlahGuru] = useState(0);
+  useEffect(() => {
+    const fetchJumlahGuru = async () => {
+      const { count } = await supabase.from("profiles").select("*", { count: "exact", head: true }).eq("aktif", true);
+      setJumlahGuru(count || 0);
+    };
+    fetchJumlahGuru();
+  }, []);
+
   const countByLevel = (lvl) => siswaList.filter((s) => s.level === lvl && s.aktif).length;
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard t={t} label="Jumlah Guru" value={guruList.filter(g => g.aktif).length} icon={Users} accent={EMERALD} />
-        <StatCard t={t} label="Siswa Level 1" value={countByLevel("Level 1")} icon={GraduationCap} accent={GOLD} />
+        <StatCard t={t} label="Jumlah Guru" value={jumlahGuru} icon={Users} accent={EMERALD} />
+        <StatCard t={t} label="Siswa Level 1A" value={countByLevel("Level 1A")} icon={GraduationCap} accent={GOLD} />
+        <StatCard t={t} label="Siswa Level 1B" value={countByLevel("Level 1B")} icon={GraduationCap} accent={GOLD} />
         <StatCard t={t} label="Siswa Level 2" value={countByLevel("Level 2")} icon={GraduationCap} accent={GOLD} />
         <StatCard t={t} label="Siswa Level 3" value={countByLevel("Level 3")} icon={GraduationCap} accent={GOLD} />
         <StatCard t={t} label="Guru Hadir Hari Ini" value="3 / 4" icon={CheckCircle2} accent={EMERALD} />
-        <StatCard t={t} label="Guru Tidak Hadir" value="1" icon={Clock} accent="#ef4444" />
         <StatCard t={t} label="Siswa Hadir Hari Ini" value="26 / 30" icon={CheckCircle2} accent={EMERALD} />
         <StatCard t={t} label="Progress Hafalan" value="62%" icon={TrendingUp} accent={GOLD} />
       </div>
@@ -459,27 +452,52 @@ function Dashboard({ t, role, guruList, siswaList }) {
 }
 
 /* ---------------------------------- DATA GURU ---------------------------------- */
-function DataGuru({ t, guruList, setGuruList, flash }) {
+function DataGuru({ t, flash }) {
   const [q, setQ] = useState("");
   const [modal, setModal] = useState(null); // {mode, data}
   const [pg, setPg] = useState(1);
   const perPage = 5;
+  const [guruList, setGuruList] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = guruList.filter((g) => g.nama.toLowerCase().includes(q.toLowerCase()) || g.nik.includes(q));
+  const fetchGuru = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("profiles").select("*").order("nama");
+    if (!error && data) setGuruList(data);
+    setLoading(false);
+  };
+  useEffect(() => { fetchGuru(); }, []);
+
+  const filtered = guruList.filter((g) => g.nama?.toLowerCase().includes(q.toLowerCase()) || (g.nik || "").includes(q));
   const paged = filtered.slice((pg - 1) * perPage, pg * perPage);
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
 
-  const save = (form) => {
+  const save = async (form) => {
     if (modal.mode === "add") {
-      setGuruList([...guruList, { ...form, id: Date.now(), aktif: true }]);
+      if (!form.id) { flash("User ID (UID) wajib diisi. Buat akun dulu di Supabase Authentication.", "error"); return; }
+      const { error } = await supabase.from("profiles").insert({
+        id: form.id, nama: form.nama, nik: form.nik, no_hp: form.hp, alamat: form.alamat, role: form.role, aktif: true,
+      });
+      if (error) { flash("Gagal menambahkan: " + error.message, "error"); return; }
       flash("Data guru berhasil ditambahkan");
     } else {
-      setGuruList(guruList.map((g) => (g.id === modal.data.id ? { ...g, ...form } : g)));
+      const { error } = await supabase.from("profiles").update({
+        nama: form.nama, nik: form.nik, no_hp: form.hp, alamat: form.alamat, role: form.role, aktif: form.aktif,
+      }).eq("id", modal.data.id);
+      if (error) { flash("Gagal memperbarui: " + error.message, "error"); return; }
       flash("Data guru berhasil diperbarui");
     }
     setModal(null);
+    fetchGuru();
   };
-  const remove = (id) => { setGuruList(guruList.filter((g) => g.id !== id)); flash("Data guru dihapus", "error"); };
+
+  const remove = async (id) => {
+    if (!window.confirm("Hapus data profil guru ini? (Akun login di Supabase Authentication tidak ikut terhapus)")) return;
+    const { error } = await supabase.from("profiles").delete().eq("id", id);
+    if (error) { flash("Gagal menghapus: " + error.message, "error"); return; }
+    flash("Data guru dihapus", "error");
+    fetchGuru();
+  };
 
   return (
     <div className="space-y-4">
@@ -488,10 +506,14 @@ function DataGuru({ t, guruList, setGuruList, flash }) {
           <Search size={16} className={t.textMuted} />
           <input value={q} onChange={(e) => { setQ(e.target.value); setPg(1); }} placeholder="Cari nama atau NIK..." className="bg-transparent outline-none text-sm w-full" />
         </div>
-        <button onClick={() => setModal({ mode: "add", data: { nama: "", nik: "", hp: "", email: "", alamat: "", username: "", role: "Guru" } })}
+        <button onClick={() => setModal({ mode: "add", data: { id: "", nama: "", nik: "", hp: "", alamat: "", role: "Guru" } })}
           className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shrink-0" style={{ backgroundColor: EMERALD }}>
           <Plus size={16} /> Tambah Guru
         </button>
+      </div>
+
+      <div className={`rounded-lg border ${t.border} px-4 py-2.5 text-xs ${t.textMuted}`}>
+        Untuk menambah guru baru: buat dulu akunnya di <b>Supabase → Authentication → Add user</b>, lalu copy <b>User UID</b>-nya dan tempel di form "Tambah Guru" di sini.
       </div>
 
       <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
@@ -507,22 +529,24 @@ function DataGuru({ t, guruList, setGuruList, flash }) {
             </tr>
           </thead>
           <tbody>
-            {paged.map((g) => (
+            {loading ? (
+              <tr><td colSpan={6} className={`px-4 py-8 text-center ${t.textMuted}`}>Memuat...</td></tr>
+            ) : paged.map((g) => (
               <tr key={g.id} className={`border-b ${t.border} last:border-0`}>
                 <td className={`px-4 py-3 ${t.text} font-medium`}>{g.nama}</td>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{g.nik}</td>
-                <td className={`px-4 py-3 ${t.textMuted}`}>{g.hp}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{g.nik || "-"}</td>
+                <td className={`px-4 py-3 ${t.textMuted}`}>{g.no_hp || "-"}</td>
                 <td className="px-4 py-3"><Badge tone="blue">{g.role}</Badge></td>
                 <td className="px-4 py-3">{g.aktif ? <Badge tone="emerald">Aktif</Badge> : <Badge tone="gray">Nonaktif</Badge>}</td>
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-1">
-                    <button onClick={() => setModal({ mode: "edit", data: g })} className={`p-1.5 rounded-md ${t.hover}`}><Pencil size={14} className={t.textMuted} /></button>
+                    <button onClick={() => setModal({ mode: "edit", data: { id: g.id, nama: g.nama, nik: g.nik || "", hp: g.no_hp || "", alamat: g.alamat || "", role: g.role, aktif: g.aktif } })} className={`p-1.5 rounded-md ${t.hover}`}><Pencil size={14} className={t.textMuted} /></button>
                     <button onClick={() => remove(g.id)} className={`p-1.5 rounded-md ${t.hover}`}><Trash2 size={14} className="text-red-500" /></button>
                   </div>
                 </td>
               </tr>
             ))}
-            {paged.length === 0 && <tr><td colSpan={6} className={`px-4 py-8 text-center ${t.textMuted}`}>Tidak ada data ditemukan</td></tr>}
+            {!loading && paged.length === 0 && <tr><td colSpan={6} className={`px-4 py-8 text-center ${t.textMuted}`}>Tidak ada data ditemukan</td></tr>}
           </tbody>
         </table>
       </div>
@@ -540,15 +564,27 @@ function GuruModal({ t, modal, onClose, onSave }) {
   const [form, setForm] = useState(modal.data);
   return (
     <Modal t={t} title={modal.mode === "add" ? "Tambah Data Guru" : "Edit Data Guru"} onClose={onClose}>
+      {modal.mode === "add" && (
+        <Field t={t} label="User UID (dari Supabase Authentication)">
+          <input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} placeholder="contoh: a085012b-aec0-415b-9f13-..." className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+      )}
       <Field t={t} label="Nama Lengkap"><input value={form.nama} onChange={(e) => setForm({ ...form, nama: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
       <Field t={t} label="NIK"><input value={form.nik} onChange={(e) => setForm({ ...form, nik: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
       <Field t={t} label="No HP"><input value={form.hp} onChange={(e) => setForm({ ...form, hp: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
-      <Field t={t} label="Email"><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
+      <Field t={t} label="Alamat"><input value={form.alamat} onChange={(e) => setForm({ ...form, alamat: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} /></Field>
       <Field t={t} label="Role">
         <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
           <option>Guru</option><option>Admin</option><option>Super Admin</option>
         </select>
       </Field>
+      {modal.mode === "edit" && (
+        <Field t={t} label="Status">
+          <select value={form.aktif ? "1" : "0"} onChange={(e) => setForm({ ...form, aktif: e.target.value === "1" })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            <option value="1">Aktif</option><option value="0">Nonaktif</option>
+          </select>
+        </Field>
+      )}
       <button onClick={() => onSave(form)} className="w-full mt-2 rounded-lg py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: EMERALD }}>Simpan</button>
     </Modal>
   );
@@ -605,10 +641,10 @@ function DataSiswa({ t, siswaList, setSiswaList, flash }) {
             <input value={q} onChange={(e) => { setQ(e.target.value); setPg(1); }} placeholder="Cari nama atau NIS..." className="bg-transparent outline-none text-sm w-full" />
           </div>
           <select value={levelFilter} onChange={(e) => { setLevelFilter(e.target.value); setPg(1); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}>
-            <option>Semua</option><option>Level 1</option><option>Level 2</option><option>Level 3</option>
+            <option>Semua</option><option>Level 1A</option><option>Level 1B</option><option>Level 2</option><option>Level 3</option>
           </select>
         </div>
-        <button onClick={() => setModal({ mode: "add", data: { nama: "", nis: "", jk: "L", level: "Level 1", ortu: "", hpOrtu: "" } })}
+        <button onClick={() => setModal({ mode: "add", data: { nama: "", nis: "", jk: "L", level: LEVELS[0], ortu: "", hpOrtu: "" } })}
           className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shrink-0" style={{ backgroundColor: EMERALD }}>
           <Plus size={16} /> Tambah Siswa
         </button>
@@ -668,7 +704,7 @@ function SiswaModal({ t, modal, onClose, onSave }) {
         </Field>
         <Field t={t} label="Level">
           <select value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
-            <option>Level 1</option><option>Level 2</option><option>Level 3</option>
+            <option>Level 1A</option><option>Level 1B</option><option>Level 2</option><option>Level 3</option>
           </select>
         </Field>
       </div>
@@ -946,7 +982,7 @@ function RiwayatTable({ t, data, showName, onDelete }) {
 
 /* ---------------------------------- CATATAN HARIAN ---------------------------------- */
 function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
-  const [level, setLevel] = useState("Level 1");
+  const [level, setLevel] = useState(LEVELS[0]);
   const [tab, setTab] = useState("absensi");
   const [absensi, setAbsensi] = useState({});
   const [savingAbsensi, setSavingAbsensi] = useState(false);
@@ -1068,7 +1104,7 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        {["Level 1", "Level 2", "Level 3"].map((l) => (
+        {LEVELS.map((l) => (
           <button key={l} onClick={() => setLevel(l)} className={`px-4 py-1.5 rounded-full text-sm font-medium border ${level === l ? "text-white border-transparent" : `${t.text} ${t.border}`}`}
             style={level === l ? { backgroundColor: EMERALD } : {}}>
             {l}
@@ -1127,7 +1163,7 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
             </select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field t={t} label={level === "Level 1" ? "Jilid Iqra'" : "Juz"}>
+            <Field t={t} label={(level === "Level 1A" || level === "Level 1B") ? "Jilid Iqra'" : "Juz"}>
               <input value={tahsin.jilid} onChange={(e) => setTahsin({ ...tahsin, jilid: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
             </Field>
             <Field t={t} label="Halaman">
@@ -1211,7 +1247,7 @@ function CatatanHarian({ t, siswaList, checkedIn, role, userId, flash }) {
 
 /* ---------------------------------- JURNAL PEMBELAJARAN ---------------------------------- */
 function JurnalPembelajaran({ t, checkedIn, role, userId, profileName, flash }) {
-  const [level, setLevel] = useState("Level 1");
+  const [level, setLevel] = useState(LEVELS[0]);
   const [form, setForm] = useState({ materi: "", metode: "", tujuan: "", evaluasi: "" });
   const [saving, setSaving] = useState(false);
   const [riwayat, setRiwayat] = useState([]);
@@ -1270,7 +1306,7 @@ function JurnalPembelajaran({ t, checkedIn, role, userId, profileName, flash }) 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        {["Level 1", "Level 2", "Level 3"].map((l) => (
+        {LEVELS.map((l) => (
           <button key={l} onClick={() => setLevel(l)} className={`px-4 py-1.5 rounded-full text-sm font-medium border ${level === l ? "text-white border-transparent" : `${t.text} ${t.border}`}`}
             style={level === l ? { backgroundColor: EMERALD } : {}}>
             {l}
@@ -1359,7 +1395,7 @@ function PredikatBadge({ value }) {
 }
 
 function PenilaianMingguan({ t, checkedIn, role, userId, siswaList, flash }) {
-  const [level, setLevel] = useState("Level 1");
+  const [level, setLevel] = useState(LEVELS[0]);
   const weekStart = getWeekStart();
   const weekEnd = getWeekEnd(weekStart);
   const [records, setRecords] = useState({});
@@ -1395,7 +1431,7 @@ function PenilaianMingguan({ t, checkedIn, role, userId, siswaList, flash }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
-          {["Level 1", "Level 2", "Level 3"].map((l) => (
+          {LEVELS.map((l) => (
             <button key={l} onClick={() => setLevel(l)} className={`px-4 py-1.5 rounded-full text-sm font-medium border ${level === l ? "text-white border-transparent" : `${t.text} ${t.border}`}`}
               style={level === l ? { backgroundColor: EMERALD } : {}}>
               {l}
@@ -1557,7 +1593,7 @@ function RekapLaporan({ t, dark, siswaList, settings, flash }) {
 
 /* ---------------------------------- LAPORAN HARIAN PER LEVEL ---------------------------------- */
 function RekapHarian({ t, dark, siswaList, settings, flash }) {
-  const [level, setLevel] = useState("Level 1");
+  const [level, setLevel] = useState(LEVELS[0]);
   const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10));
   const [pesanGuru, setPesanGuru] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1627,7 +1663,7 @@ function RekapHarian({ t, dark, siswaList, settings, flash }) {
       <div className={`rounded-xl border ${t.border} ${t.panel} p-4 flex flex-wrap gap-3 items-end`}>
         <Field t={t} label="Level">
           <select value={level} onChange={(e) => { setLevel(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}>
-            <option>Level 1</option><option>Level 2</option><option>Level 3</option>
+            <option>Level 1A</option><option>Level 1B</option><option>Level 2</option><option>Level 3</option>
           </select>
         </Field>
         <Field t={t} label="Tanggal">
@@ -1752,7 +1788,7 @@ function getMode(arr) {
 }
 
 function RekapPeriode({ t, siswaList, settings, flash }) {
-  const [level, setLevel] = useState("Level 1");
+  const [level, setLevel] = useState(LEVELS[0]);
   const today = new Date();
   const [tglMulai, setTglMulai] = useState(new Date(today.getFullYear(), today.getMonth() - 5, 1).toISOString().slice(0, 10));
   const [tglSelesai, setTglSelesai] = useState(today.toISOString().slice(0, 10));
@@ -1902,7 +1938,7 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
         <div className="flex flex-wrap gap-3 items-end">
           <Field t={t} label="Level">
             <select value={level} onChange={(e) => { setLevel(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}>
-              <option>Level 1</option><option>Level 2</option><option>Level 3</option>
+              <option>Level 1A</option><option>Level 1B</option><option>Level 2</option><option>Level 3</option>
             </select>
           </Field>
           <Field t={t} label="Tanggal Mulai">
@@ -1992,6 +2028,172 @@ function RekapPeriode({ t, siswaList, settings, flash }) {
             )}
             <p className={`text-[11px] mt-2 ${t.textMuted}`}>* Data lengkap (termasuk Tujuan & Evaluasi) ikut ter-export sebagai sheet terpisah "Materi Pembelajaran" di file Excel.</p>
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------- REKAP SPP SANTRI ---------------------------------- */
+function RekapSPP({ t, siswaList, userId, flash }) {
+  const now = new Date();
+  const [level, setLevel] = useState(LEVELS[0]);
+  const [bulan, setBulan] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [rowsData, setRowsData] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const students = siswaList.filter((s) => s.level === level && s.aktif !== false);
+
+  const bulanLabel = () => {
+    const [y, m] = bulan.split("-");
+    return new Date(`${y}-${m}-01`).toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    const ids = students.map((s) => s.id);
+    const map = {};
+    students.forEach((s) => { map[s.id] = { jumlah_tagihan: 150000, jumlah_dibayar: 0, status: "Belum Lunas", tanggal_bayar: "", catatan: "" }; });
+    if (ids.length > 0) {
+      const { data, error } = await supabase.from("spp_payments").select("*").in("student_id", ids).eq("bulan", bulan);
+      if (error) { flash("Gagal memuat: " + error.message, "error"); setLoading(false); return; }
+      (data || []).forEach((r) => {
+        map[r.student_id] = {
+          id: r.id, jumlah_tagihan: r.jumlah_tagihan, jumlah_dibayar: r.jumlah_dibayar,
+          status: r.status, tanggal_bayar: r.tanggal_bayar || "", catatan: r.catatan || "",
+        };
+      });
+    }
+    setRowsData(map);
+    setLoading(false);
+    setLoaded(true);
+  };
+
+  const updateRow = (studentId, field, value) => {
+    setRowsData({ ...rowsData, [studentId]: { ...rowsData[studentId], [field]: value } });
+  };
+
+  const simpanSemua = async () => {
+    setSaving(true);
+    const payload = students.map((s) => {
+      const r = rowsData[s.id];
+      return {
+        student_id: s.id, level, bulan,
+        jumlah_tagihan: Number(r.jumlah_tagihan) || 0,
+        jumlah_dibayar: Number(r.jumlah_dibayar) || 0,
+        status: r.status, tanggal_bayar: r.tanggal_bayar || null, catatan: r.catatan || null,
+        updated_by: userId,
+      };
+    });
+    const { error } = await supabase.from("spp_payments").upsert(payload, { onConflict: "student_id,bulan" });
+    setSaving(false);
+    if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    flash("Rekap SPP tersimpan");
+    loadData();
+  };
+
+  const exportExcel = async () => {
+    try {
+      const XLSX = await import("xlsx");
+      const dataForSheet = students.map((s, i) => {
+        const r = rowsData[s.id] || {};
+        return {
+          "No": i + 1, "Nama Siswa": s.nama, "NIS": s.nis,
+          "Jumlah Tagihan": r.jumlah_tagihan || 0, "Jumlah Dibayar": r.jumlah_dibayar || 0,
+          "Sisa": (r.jumlah_tagihan || 0) - (r.jumlah_dibayar || 0),
+          "Status": r.status || "Belum Lunas", "Tanggal Bayar": r.tanggal_bayar || "-",
+        };
+      });
+      const ws = XLSX.utils.json_to_sheet(dataForSheet);
+      ws["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, level.replace(" ", ""));
+      XLSX.writeFile(wb, `SPP-${level.replace(" ", "")}-${bulan}.xlsx`);
+      flash("Rekap SPP berhasil diunduh");
+    } catch (e) {
+      flash("Gagal membuat Excel: " + e.message, "error");
+    }
+  };
+
+  const totalTagihan = Object.values(rowsData).reduce((a, r) => a + (Number(r.jumlah_tagihan) || 0), 0);
+  const totalDibayar = Object.values(rowsData).reduce((a, r) => a + (Number(r.jumlah_dibayar) || 0), 0);
+  const jumlahLunas = Object.values(rowsData).filter((r) => r.status === "Lunas").length;
+
+  return (
+    <div className="space-y-4">
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4 flex flex-wrap gap-3 items-end`}>
+        <Field t={t} label="Level">
+          <select value={level} onChange={(e) => { setLevel(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            {LEVELS.map((l) => <option key={l}>{l}</option>)}
+          </select>
+        </Field>
+        <Field t={t} label="Bulan">
+          <input type="month" value={bulan} onChange={(e) => { setBulan(e.target.value); setLoaded(false); }} className={`rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <button onClick={loadData} disabled={loading} className="rounded-lg px-4 py-2 text-sm font-medium text-white h-fit disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+          {loading ? "Memuat..." : "Muat Data"}
+        </button>
+      </div>
+
+      {loaded && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard t={t} label={`Total Tagihan — ${bulanLabel()}`} value={`Rp${totalTagihan.toLocaleString("id-ID")}`} icon={Wallet} accent={EMERALD} />
+            <StatCard t={t} label="Total Terbayar" value={`Rp${totalDibayar.toLocaleString("id-ID")}`} icon={CheckCircle2} accent={GOLD} />
+            <StatCard t={t} label="Jumlah Lunas" value={`${jumlahLunas} / ${students.length} Siswa`} icon={TrendingUp} accent={EMERALD} />
+          </div>
+
+          <div className="flex flex-wrap gap-2 justify-end">
+            <button onClick={exportExcel} className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium border ${t.border} ${t.text} ${t.hover}`}>
+              <Download size={14} /> Download Excel
+            </button>
+            <button onClick={simpanSemua} disabled={saving} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+              {saving ? "Menyimpan..." : "Simpan Semua"}
+            </button>
+          </div>
+
+          <div className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+                  <th className="px-3 py-3 font-medium">Nama Siswa</th>
+                  <th className="px-3 py-3 font-medium">Jumlah Tagihan</th>
+                  <th className="px-3 py-3 font-medium">Jumlah Dibayar</th>
+                  <th className="px-3 py-3 font-medium">Status</th>
+                  <th className="px-3 py-3 font-medium">Tanggal Bayar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {students.length === 0 ? (
+                  <tr><td colSpan={5} className={`px-4 py-8 text-center ${t.textMuted}`}>Belum ada siswa di level ini</td></tr>
+                ) : students.map((s) => {
+                  const r = rowsData[s.id] || { jumlah_tagihan: 0, jumlah_dibayar: 0, status: "Belum Lunas", tanggal_bayar: "" };
+                  return (
+                    <tr key={s.id} className={`border-b ${t.border} last:border-0`}>
+                      <td className={`px-3 py-3 ${t.text} font-medium whitespace-nowrap`}>{s.nama}</td>
+                      <td className="px-3 py-3">
+                        <input type="number" value={r.jumlah_tagihan} onChange={(e) => updateRow(s.id, "jumlah_tagihan", e.target.value)} className={`w-28 rounded-lg border px-2 py-1.5 text-xs ${t.input}`} />
+                      </td>
+                      <td className="px-3 py-3">
+                        <input type="number" value={r.jumlah_dibayar} onChange={(e) => updateRow(s.id, "jumlah_dibayar", e.target.value)} className={`w-28 rounded-lg border px-2 py-1.5 text-xs ${t.input}`} />
+                      </td>
+                      <td className="px-3 py-3">
+                        <select value={r.status} onChange={(e) => updateRow(s.id, "status", e.target.value)} className={`rounded-lg border px-2 py-1.5 text-xs ${t.input}`}>
+                          <option>Lunas</option><option>Sebagian</option><option>Belum Lunas</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-3">
+                        <input type="date" value={r.tanggal_bayar || ""} onChange={(e) => updateRow(s.id, "tanggal_bayar", e.target.value)} className={`rounded-lg border px-2 py-1.5 text-xs ${t.input}`} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className={`text-xs ${t.textMuted}`}>* Setelah mengubah data di tabel, klik <b>Simpan Semua</b> untuk menyimpannya secara permanen.</p>
         </>
       )}
     </div>
