@@ -2058,6 +2058,24 @@ function semesterDateRange(tahunAjaran, semester) {
   return { start: `${y2}-01-01`, end: `${y2}-06-30` };
 }
 
+// Mengembalikan daftar {nama, num, tahun} untuk tiap bulan pada semester (dengan tahun kalender yang benar)
+function bulanDenganTahun(tahunAjaran, semester) {
+  const parts = tahunAjaran.split("/").map((x) => parseInt(x.trim(), 10));
+  const y1 = parts[0] || new Date().getFullYear();
+  const y2 = parts[1] || y1 + 1;
+  if (semester === "Semester 1") {
+    return SEMESTER_BULAN["Semester 1"].map((nama, idx) => ({ nama, num: 7 + idx, tahun: y1 }));
+  }
+  return SEMESTER_BULAN["Semester 2"].map((nama, idx) => ({ nama, num: 1 + idx, tahun: y2 }));
+}
+
+// Tanggal jatuh tempo SPP suatu bulan = tanggal 1 bulan berikutnya
+function jatuhTempoISO(num, tahun) {
+  let m = num + 1, y = tahun;
+  if (m > 12) { m = 1; y += 1; }
+  return `${y}-${String(m).padStart(2, "0")}-01`;
+}
+
 function RekapSPP({ t, siswaList, userId, flash }) {
   const [tab, setTab] = useState("input");
   const activeStudents = siswaList.filter((s) => s.aktif !== false);
@@ -2424,13 +2442,23 @@ function SPPRekap({ t, siswaList, flash }) {
       const nominalEstimasi = {};
       (lastTrxAll || []).forEach((r) => { if (!nominalEstimasi[r.student_id]) nominalEstimasi[r.student_id] = r.nominal_per_bulan; });
 
+      const todayISO = new Date().toISOString().slice(0, 10);
+      const bulanInfo = bulanDenganTahun(tahunAjaran, semester); // [{nama, num, tahun}]
+
       setRows(students.map((s) => {
         const statusPerBulan = bulanList.map((b) => statusMapAll[s.id]?.[b]?.status === "Lunas" ? "Lunas" : "Belum Bayar");
-        const bulanBelumBayar = bulanList.filter((b, idx) => statusPerBulan[idx] === "Belum Bayar");
         const totalDibayar = bulanList.reduce((sum, b) => sum + (statusMapAll[s.id]?.[b]?.status === "Lunas" ? (statusMapAll[s.id][b].nominal || 0) : 0), 0);
         const estimasiPerBulan = nominalEstimasi[s.id] || 100000;
-        const totalTunggakan = bulanBelumBayar.length * estimasiPerBulan;
-        return { ...s, statusPerBulan, bulanBelumBayar, totalDibayar, totalTunggakan };
+
+        // Hanya bulan yang BELUM Lunas DAN SUDAH lewat tanggal jatuh tempo yang dihitung sebagai tunggakan
+        const bulanMenunggak = bulanInfo
+          .filter((bi) => statusMapAll[s.id]?.[bi.nama]?.status !== "Lunas")
+          .filter((bi) => todayISO >= jatuhTempoISO(bi.num, bi.tahun))
+          .map((bi) => bi.nama);
+
+        const totalTunggakan = bulanMenunggak.length * estimasiPerBulan;
+        const status = bulanMenunggak.length > 0 ? "Menunggak" : "Lunas";
+        return { ...s, statusPerBulan, bulanMenunggak, totalDibayar, totalTunggakan, statusSPP: status };
       }));
     } else {
       setRows([]);
@@ -2440,7 +2468,7 @@ function SPPRekap({ t, siswaList, flash }) {
     setLoaded(true);
   };
 
-  const santriMenunggak = rows.filter((r) => r.bulanBelumBayar.length > 0);
+  const santriMenunggak = rows.filter((r) => r.bulanMenunggak.length > 0);
   const totalTunggakanSemua = santriMenunggak.reduce((a, r) => a + r.totalTunggakan, 0);
   const saldoAkhir = totalMasuk - totalKeluar;
 
@@ -2475,11 +2503,13 @@ function SPPRekap({ t, siswaList, flash }) {
 
       // Sheet 3: Daftar Menunggak
       const dataTunggak = santriMenunggak.map((r, i) => ({
-        "No": i + 1, "Nama Santri": r.nama, "Kelas/Level": r.level,
-        "Bulan Belum Dibayar": r.bulanBelumBayar.join(", "), "Total Tunggakan (Estimasi)": r.totalTunggakan, "Status": "Menunggak",
+        "No": i + 1, "Nama Santri": r.nama, "Kelas": r.level,
+        "Jumlah Bulan Menunggak": r.bulanMenunggak.length,
+        "Bulan yang Menunggak": r.bulanMenunggak.join(", "),
+        "Total Tunggakan": r.totalTunggakan, "Status": r.statusSPP,
       }));
       const wsTunggak = XLSX.utils.json_to_sheet(dataTunggak);
-      wsTunggak["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 10 }, { wch: 28 }, { wch: 20 }, { wch: 12 }];
+      wsTunggak["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 28 }, { wch: 16 }, { wch: 12 }];
       XLSX.utils.book_append_sheet(wb, wsTunggak, "Santri Menunggak");
 
       XLSX.writeFile(wb, `Rekap-SPP-${tahunAjaran.replace("/", "-")}-${semester.replace(" ", "")}.xlsx`);
@@ -2564,25 +2594,28 @@ function SPPRekap({ t, siswaList, flash }) {
 
           <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
             <p className={`text-sm font-semibold mb-3 ${t.text}`}>Daftar Santri Menunggak</p>
+            <p className={`text-xs mb-3 ${t.textMuted}`}>Dihitung berdasarkan tanggal hari ini ({new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}) — bulan yang belum jatuh tempo tidak dihitung sebagai tunggakan.</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
                     <th className="px-3 py-2 font-medium">Nama Santri</th>
                     <th className="px-3 py-2 font-medium">Kelas</th>
-                    <th className="px-3 py-2 font-medium">Bulan Belum Dibayar</th>
+                    <th className="px-3 py-2 font-medium text-center">Jml Bulan Menunggak</th>
+                    <th className="px-3 py-2 font-medium">Bulan yang Menunggak</th>
                     <th className="px-3 py-2 font-medium text-right">Total Tunggakan</th>
                     <th className="px-3 py-2 font-medium text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {santriMenunggak.length === 0 ? (
-                    <tr><td colSpan={5} className={`px-3 py-6 text-center ${t.textMuted}`}>🎉 Tidak ada santri yang menunggak pada periode ini</td></tr>
+                    <tr><td colSpan={6} className={`px-3 py-6 text-center ${t.textMuted}`}>🎉 Tidak ada santri yang menunggak per hari ini</td></tr>
                   ) : santriMenunggak.map((r) => (
                     <tr key={r.id} className={`border-b ${t.border} last:border-0`}>
                       <td className={`px-3 py-2 ${t.text} font-medium whitespace-nowrap`}>{r.nama}</td>
                       <td className={`px-3 py-2 ${t.textMuted}`}>{r.level}</td>
-                      <td className={`px-3 py-2 ${t.textMuted}`}>{r.bulanBelumBayar.join(", ")}</td>
+                      <td className={`px-3 py-2 ${t.textMuted} text-center`}>{r.bulanMenunggak.length}</td>
+                      <td className={`px-3 py-2 ${t.textMuted}`}>{r.bulanMenunggak.join(", ")}</td>
                       <td className="px-3 py-2 text-right text-red-500 font-medium whitespace-nowrap">{formatRupiah(r.totalTunggakan)}</td>
                       <td className="px-3 py-2 text-center"><Badge tone="red">Menunggak</Badge></td>
                     </tr>
@@ -2590,7 +2623,7 @@ function SPPRekap({ t, siswaList, flash }) {
                 </tbody>
               </table>
             </div>
-            <p className={`text-[11px] mt-2 ${t.textMuted}`}>* Total Tunggakan bersifat estimasi, dihitung dari nominal pembayaran terakhir santri tersebut (default Rp100.000/bulan jika belum pernah membayar).</p>
+            <p className={`text-[11px] mt-2 ${t.textMuted}`}>* Total Tunggakan bersifat estimasi, dihitung dari nominal pembayaran terakhir santri tersebut (default Rp100.000/bulan jika belum pernah membayar). Jatuh tempo SPP setiap bulan adalah tanggal 1 bulan berikutnya.</p>
           </div>
         </>
       )}
