@@ -2040,6 +2040,7 @@ const SEMESTER_BULAN = {
   "Semester 2": ["Januari", "Februari", "Maret", "April", "Mei", "Juni"],
 };
 const NOMINAL_OPTIONS = [100000, 50000];
+const KATEGORI_PENGELUARAN = ["ATK & Perlengkapan", "Konsumsi", "Operasional", "Honor Guru", "Kebersihan", "Listrik/Air", "Lainnya"];
 
 function defaultTahunAjaran() {
   const d = new Date();
@@ -2049,6 +2050,13 @@ function defaultTahunAjaran() {
 function formatRupiah(n) {
   return "Rp" + (Number(n) || 0).toLocaleString("id-ID");
 }
+function semesterDateRange(tahunAjaran, semester) {
+  const parts = tahunAjaran.split("/").map((x) => parseInt(x.trim(), 10));
+  const y1 = parts[0] || new Date().getFullYear();
+  const y2 = parts[1] || y1 + 1;
+  if (semester === "Semester 1") return { start: `${y1}-07-01`, end: `${y1}-12-31` };
+  return { start: `${y2}-01-01`, end: `${y2}-06-30` };
+}
 
 function RekapSPP({ t, siswaList, userId, flash }) {
   const [tab, setTab] = useState("input");
@@ -2056,8 +2064,12 @@ function RekapSPP({ t, siswaList, userId, flash }) {
 
   return (
     <div className="space-y-4">
-      <div className={`flex gap-1 border-b ${t.border}`}>
-        {[{ key: "input", label: "Input Pembayaran" }, { key: "rekap", label: "Rekap & Laporan" }].map((tb) => (
+      <div className={`flex gap-1 border-b ${t.border} flex-wrap`}>
+        {[
+          { key: "input", label: "Input Pembayaran" },
+          { key: "pengeluaran", label: "Penggunaan Uang SPP" },
+          { key: "rekap", label: "Rekap & Laporan" },
+        ].map((tb) => (
           <button key={tb.key} onClick={() => setTab(tb.key)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === tb.key ? "border-current" : "border-transparent " + t.textMuted}`}
             style={tab === tb.key ? { color: EMERALD } : {}}>
             {tb.label}
@@ -2065,6 +2077,7 @@ function RekapSPP({ t, siswaList, userId, flash }) {
         ))}
       </div>
       {tab === "input" && <SPPInput t={t} siswaList={activeStudents} userId={userId} flash={flash} />}
+      {tab === "pengeluaran" && <SPPPengeluaran t={t} userId={userId} flash={flash} />}
       {tab === "rekap" && <SPPRekap t={t} siswaList={activeStudents} flash={flash} />}
     </div>
   );
@@ -2103,7 +2116,7 @@ function SPPInput({ t, siswaList, userId, flash }) {
   useEffect(() => { fetchStatus(); }, [studentId, tahunAjaran, semester]);
 
   const toggleBulan = (b) => {
-    if (statusMap[b]?.status === "Lunas") return; // tidak bisa pilih bulan yang sudah lunas
+    if (statusMap[b]?.status === "Lunas") return;
     setSelectedBulan((prev) => prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]);
   };
 
@@ -2114,7 +2127,6 @@ function SPPInput({ t, siswaList, userId, flash }) {
     if (selectedBulan.length === 0) { flash("Pilih minimal 1 bulan yang dibayarkan", "error"); return; }
     setSaving(true);
 
-    // cek ulang ke database supaya tidak ada duplikasi (race condition)
     const { data: cekUlang } = await supabase.from("spp_status").select("bulan,status").eq("student_id", studentId).eq("tahun_ajaran", tahunAjaran).eq("semester", semester).in("bulan", selectedBulan);
     const sudahLunas = (cekUlang || []).filter((r) => r.status === "Lunas").map((r) => r.bulan);
     if (sudahLunas.length > 0) {
@@ -2257,60 +2269,219 @@ function SPPInput({ t, siswaList, userId, flash }) {
   );
 }
 
-/* ---------- TAB: REKAP & LAPORAN ---------- */
+/* ---------- TAB: PENGGUNAAN UANG SPP (KAS KELUAR) ---------- */
+function SPPPengeluaran({ t, userId, flash }) {
+  const [form, setForm] = useState({
+    tanggal: new Date().toISOString().slice(0, 10), kategori: "", deskripsi: "",
+    nominal: "", penanggung_jawab: "", keterangan: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchList = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("spp_expenses").select("*").order("tanggal", { ascending: false }).limit(30);
+    setList(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { fetchList(); }, []);
+
+  const simpan = async () => {
+    if (!form.kategori.trim()) { flash("Nama/Kategori pengeluaran wajib diisi", "error"); return; }
+    if (!form.nominal || Number(form.nominal) <= 0) { flash("Nominal pengeluaran wajib diisi", "error"); return; }
+    setSaving(true);
+    const { error } = await supabase.from("spp_expenses").insert({
+      tanggal: form.tanggal, kategori: form.kategori, deskripsi: form.deskripsi || null,
+      nominal: Number(form.nominal), penanggung_jawab: form.penanggung_jawab || null,
+      keterangan: form.keterangan || null, created_by: userId,
+    });
+    setSaving(false);
+    if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    flash("Pengeluaran berhasil dicatat (Kas Keluar)");
+    setForm({ tanggal: new Date().toISOString().slice(0, 10), kategori: "", deskripsi: "", nominal: "", penanggung_jawab: "", keterangan: "" });
+    fetchList();
+  };
+
+  const hapus = async (id) => {
+    if (!window.confirm("Hapus catatan pengeluaran ini?")) return;
+    const { error } = await supabase.from("spp_expenses").delete().eq("id", id);
+    if (error) { flash("Gagal menghapus: " + error.message, "error"); return; }
+    flash("Pengeluaran dihapus", "error");
+    fetchList();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-5 space-y-3`}>
+        <p className={`text-sm font-semibold ${t.text}`}>Catat Pengeluaran Dana SPP</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field t={t} label="Tanggal Pengeluaran">
+            <input type="date" value={form.tanggal} onChange={(e) => setForm({ ...form, tanggal: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+          </Field>
+          <Field t={t} label="Nama / Kategori Pengeluaran">
+            <input list="kategori-list" value={form.kategori} onChange={(e) => setForm({ ...form, kategori: e.target.value })} placeholder="Contoh: ATK & Perlengkapan" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+            <datalist id="kategori-list">
+              {KATEGORI_PENGELUARAN.map((k) => <option key={k} value={k} />)}
+            </datalist>
+          </Field>
+        </div>
+        <Field t={t} label="Deskripsi / Keperluan">
+          <textarea value={form.deskripsi} onChange={(e) => setForm({ ...form, deskripsi: e.target.value })} rows={2} placeholder="Contoh: Beli spidol dan kertas untuk Level 1A-1B" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field t={t} label="Nominal Pengeluaran">
+            <input type="number" value={form.nominal} onChange={(e) => setForm({ ...form, nominal: e.target.value })} placeholder="0" className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+          </Field>
+          <Field t={t} label="Penanggung Jawab (opsional)">
+            <input value={form.penanggung_jawab} onChange={(e) => setForm({ ...form, penanggung_jawab: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+          </Field>
+        </div>
+        <Field t={t} label="Keterangan (opsional)">
+          <textarea value={form.keterangan} onChange={(e) => setForm({ ...form, keterangan: e.target.value })} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <button onClick={simpan} disabled={saving} className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+          {saving ? "Menyimpan..." : "Simpan Pengeluaran"}
+        </button>
+        <p className={`text-[11px] ${t.textMuted}`}>Data ini otomatis tercatat sebagai <b>Kas Keluar</b> dan langsung mengurangi Saldo Kas SPP di tab Rekap & Laporan.</p>
+      </div>
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+        <p className={`text-sm font-semibold mb-3 ${t.text}`}>Riwayat Pengeluaran Terbaru</p>
+        {loading ? (
+          <p className={`text-sm ${t.textMuted}`}>Memuat...</p>
+        ) : list.length === 0 ? (
+          <p className={`text-sm ${t.textMuted}`}>Belum ada pengeluaran tercatat.</p>
+        ) : (
+          <div className="space-y-2">
+            {list.map((e) => (
+              <div key={e.id} className={`flex items-center justify-between rounded-lg border ${t.border} px-3 py-2`}>
+                <div className="min-w-0">
+                  <p className={`text-sm font-medium ${t.text} truncate`}>{e.kategori} — {formatRupiah(e.nominal)}</p>
+                  <p className={`text-xs ${t.textMuted} truncate`}>{e.tanggal}{e.deskripsi ? ` · ${e.deskripsi}` : ""}{e.penanggung_jawab ? ` · PJ: ${e.penanggung_jawab}` : ""}</p>
+                </div>
+                <button onClick={() => hapus(e.id)} className="p-1.5 rounded-md hover:bg-red-50 shrink-0"><Trash2 size={14} className="text-red-500" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- TAB: REKAP & LAPORAN (KAS MASUK/KELUAR/SALDO + TUNGGAKAN) ---------- */
 function SPPRekap({ t, siswaList, flash }) {
   const [tahunAjaran, setTahunAjaran] = useState(defaultTahunAjaran());
   const [semester, setSemester] = useState("Semester 1");
   const [level, setLevel] = useState("Semua");
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+
+  const [ledger, setLedger] = useState([]);
+  const [totalMasuk, setTotalMasuk] = useState(0);
+  const [totalKeluar, setTotalKeluar] = useState(0);
   const [rows, setRows] = useState([]);
-  const reportRef = React.useRef(null);
 
   const bulanList = SEMESTER_BULAN[semester];
   const students = siswaList.filter((s) => level === "Semua" || s.level === level);
+  const { start, end } = semesterDateRange(tahunAjaran, semester);
 
   const loadData = async () => {
     setLoading(true);
     const ids = students.map((s) => s.id);
-    if (ids.length === 0) { setRows([]); setLoading(false); setLoaded(true); return; }
-    const { data, error } = await supabase.from("spp_status").select("*").in("student_id", ids).eq("tahun_ajaran", tahunAjaran).eq("semester", semester);
-    if (error) { flash("Gagal memuat: " + error.message, "error"); setLoading(false); return; }
-    const map = {};
-    (data || []).forEach((r) => { if (!map[r.student_id]) map[r.student_id] = {}; map[r.student_id][r.bulan] = r; });
-    setRows(students.map((s) => {
-      const statusPerBulan = bulanList.map((b) => map[s.id]?.[b]?.status === "Lunas" ? "Lunas" : "Belum Bayar");
-      const totalBayar = bulanList.reduce((sum, b) => sum + (map[s.id]?.[b]?.status === "Lunas" ? (map[s.id][b].nominal || 0) : 0), 0);
-      return { ...s, statusPerBulan, totalBayar };
-    }));
+
+    // --- Kas Masuk: pembayaran SPP sesuai Tahun Ajaran & Semester ini ---
+    const { data: transaksi, error: trxErr } = await supabase.from("spp_transactions").select("*, students(nama)").eq("tahun_ajaran", tahunAjaran).eq("semester", semester);
+    if (trxErr) { flash("Gagal memuat kas masuk: " + trxErr.message, "error"); setLoading(false); return; }
+
+    // --- Kas Keluar: pengeluaran pada rentang tanggal semester ini ---
+    const { data: pengeluaran, error: expErr } = await supabase.from("spp_expenses").select("*").gte("tanggal", start).lte("tanggal", end);
+    if (expErr) { flash("Gagal memuat kas keluar: " + expErr.message, "error"); setLoading(false); return; }
+
+    const entries = [
+      ...(transaksi || []).map((r) => ({ tanggal: r.tanggal_bayar, keterangan: `Pembayaran SPP — ${r.students?.nama || "-"} (${r.bulan_list.join(", ")})`, masuk: r.total_bayar, keluar: 0 })),
+      ...(pengeluaran || []).map((e) => ({ tanggal: e.tanggal, keterangan: `${e.kategori}${e.deskripsi ? " — " + e.deskripsi : ""}`, masuk: 0, keluar: e.nominal })),
+    ].sort((a, b) => a.tanggal.localeCompare(b.tanggal));
+
+    let saldo = 0;
+    const ledgerWithSaldo = entries.map((e) => {
+      saldo += e.masuk - e.keluar;
+      return { ...e, saldo };
+    });
+    setLedger(ledgerWithSaldo);
+    setTotalMasuk((transaksi || []).reduce((a, r) => a + Number(r.total_bayar), 0));
+    setTotalKeluar((pengeluaran || []).reduce((a, e) => a + Number(e.nominal), 0));
+
+    // --- Tunggakan: status per siswa per bulan pada semester ini ---
+    if (ids.length > 0) {
+      const { data: statusData } = await supabase.from("spp_status").select("*").in("student_id", ids).eq("tahun_ajaran", tahunAjaran).eq("semester", semester);
+      const statusMapAll = {};
+      (statusData || []).forEach((r) => { if (!statusMapAll[r.student_id]) statusMapAll[r.student_id] = {}; statusMapAll[r.student_id][r.bulan] = r; });
+
+      // ambil nominal terakhir tiap siswa sebagai estimasi tunggakan
+      const { data: lastTrxAll } = await supabase.from("spp_transactions").select("student_id, nominal_per_bulan, tanggal_bayar").in("student_id", ids).order("tanggal_bayar", { ascending: false });
+      const nominalEstimasi = {};
+      (lastTrxAll || []).forEach((r) => { if (!nominalEstimasi[r.student_id]) nominalEstimasi[r.student_id] = r.nominal_per_bulan; });
+
+      setRows(students.map((s) => {
+        const statusPerBulan = bulanList.map((b) => statusMapAll[s.id]?.[b]?.status === "Lunas" ? "Lunas" : "Belum Bayar");
+        const bulanBelumBayar = bulanList.filter((b, idx) => statusPerBulan[idx] === "Belum Bayar");
+        const totalDibayar = bulanList.reduce((sum, b) => sum + (statusMapAll[s.id]?.[b]?.status === "Lunas" ? (statusMapAll[s.id][b].nominal || 0) : 0), 0);
+        const estimasiPerBulan = nominalEstimasi[s.id] || 100000;
+        const totalTunggakan = bulanBelumBayar.length * estimasiPerBulan;
+        return { ...s, statusPerBulan, bulanBelumBayar, totalDibayar, totalTunggakan };
+      }));
+    } else {
+      setRows([]);
+    }
+
     setLoading(false);
     setLoaded(true);
   };
 
-  const grandTotal = rows.reduce((a, r) => a + r.totalBayar, 0);
-  const jumlahLunasSemua = rows.filter((r) => r.statusPerBulan.every((s) => s === "Lunas")).length;
+  const santriMenunggak = rows.filter((r) => r.bulanBelumBayar.length > 0);
+  const totalTunggakanSemua = santriMenunggak.reduce((a, r) => a + r.totalTunggakan, 0);
+  const saldoAkhir = totalMasuk - totalKeluar;
 
   const exportExcel = async () => {
     try {
       const XLSX = await import("xlsx");
-      const headerRows = [
-        ["REKAP PEMBAYARAN SPP SANTRI"],
-        ["Madrasah Sore Madani"],
-        [`Tahun Ajaran: ${tahunAjaran}  ·  ${semester}  ·  Level: ${level}`],
-        [`Dicetak: ${new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}`],
-        [],
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Ringkasan + Kas
+      const ringkasanRows = [
+        ["REKAP KEUANGAN SPP SANTRI"], ["Madrasah Sore Madani"],
+        [`Tahun Ajaran: ${tahunAjaran}  ·  ${semester}`],
+        [`Dicetak: ${new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}`], [],
+        ["Total Kas Masuk", totalMasuk], ["Total Kas Keluar", totalKeluar], ["Saldo Kas SPP", saldoAkhir],
+        ["Total Tunggakan SPP", totalTunggakanSemua], ["Jumlah Santri Menunggak", santriMenunggak.length], [],
       ];
-      const dataForSheet = rows.map((r, i) => {
-        const obj = { "No": i + 1, "Nama Santri": r.nama, "NIS": r.nis, "Level": r.level };
+      const wsRingkasan = XLSX.utils.aoa_to_sheet(ringkasanRows);
+      const ledgerData = ledger.map((l) => ({ "Tanggal": l.tanggal, "Keterangan": l.keterangan, "Kas Masuk": l.masuk, "Kas Keluar": l.keluar, "Saldo": l.saldo }));
+      XLSX.utils.sheet_add_json(wsRingkasan, ledgerData, { origin: -1, skipHeader: false });
+      wsRingkasan["!cols"] = [{ wch: 12 }, { wch: 40 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, wsRingkasan, "Kas SPP");
+
+      // Sheet 2: Status per santri
+      const dataStatus = rows.map((r, i) => {
+        const obj = { "No": i + 1, "Nama Santri": r.nama, "Level": r.level };
         bulanList.forEach((b, idx) => { obj[b] = r.statusPerBulan[idx]; });
-        obj["Total Dibayar"] = r.totalBayar;
+        obj["Total Dibayar"] = r.totalDibayar;
         return obj;
       });
-      const ws = XLSX.utils.aoa_to_sheet(headerRows);
-      XLSX.utils.sheet_add_json(ws, dataForSheet, { origin: -1, skipHeader: false });
-      ws["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 12 }, { wch: 10 }, ...bulanList.map(() => ({ wch: 12 })), { wch: 14 }];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Rekap SPP");
+      const wsStatus = XLSX.utils.json_to_sheet(dataStatus);
+      XLSX.utils.book_append_sheet(wb, wsStatus, "Status Bulanan");
+
+      // Sheet 3: Daftar Menunggak
+      const dataTunggak = santriMenunggak.map((r, i) => ({
+        "No": i + 1, "Nama Santri": r.nama, "Kelas/Level": r.level,
+        "Bulan Belum Dibayar": r.bulanBelumBayar.join(", "), "Total Tunggakan (Estimasi)": r.totalTunggakan, "Status": "Menunggak",
+      }));
+      const wsTunggak = XLSX.utils.json_to_sheet(dataTunggak);
+      wsTunggak["!cols"] = [{ wch: 4 }, { wch: 22 }, { wch: 10 }, { wch: 28 }, { wch: 20 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, wsTunggak, "Santri Menunggak");
+
       XLSX.writeFile(wb, `Rekap-SPP-${tahunAjaran.replace("/", "-")}-${semester.replace(" ", "")}.xlsx`);
       flash("Rekap SPP berhasil diunduh (Excel)");
     } catch (e) {
@@ -2318,10 +2489,7 @@ function SPPRekap({ t, siswaList, flash }) {
     }
   };
 
-  const cetakPDF = () => {
-    window.print();
-    flash("Gunakan dialog cetak untuk menyimpan sebagai PDF");
-  };
+  const cetakPDF = () => { window.print(); flash("Gunakan dialog cetak untuk menyimpan sebagai PDF"); };
 
   return (
     <div className="space-y-4">
@@ -2347,9 +2515,12 @@ function SPPRekap({ t, siswaList, flash }) {
 
       {loaded && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <StatCard t={t} label={`Total Pemasukan SPP — ${tahunAjaran} ${semester}`} value={formatRupiah(grandTotal)} icon={Wallet} accent={EMERALD} />
-            <StatCard t={t} label="Santri Lunas Semua Bulan" value={`${jumlahLunasSemua} / ${rows.length}`} icon={CheckCircle2} accent={GOLD} />
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <StatCard t={t} label="Total Kas Masuk" value={formatRupiah(totalMasuk)} icon={TrendingUp} accent={EMERALD} />
+            <StatCard t={t} label="Total Kas Keluar" value={formatRupiah(totalKeluar)} icon={Download} accent="#ef4444" />
+            <StatCard t={t} label="Saldo Kas SPP" value={formatRupiah(saldoAkhir)} icon={Wallet} accent={GOLD} />
+            <StatCard t={t} label="Total Tunggakan SPP" value={formatRupiah(totalTunggakanSemua)} icon={Clock} accent="#ef4444" />
+            <StatCard t={t} label="Santri Menunggak" value={`${santriMenunggak.length} / ${rows.length}`} icon={Users} accent="#ef4444" />
           </div>
 
           <div className="flex flex-wrap gap-2 justify-end">
@@ -2361,31 +2532,65 @@ function SPPRekap({ t, siswaList, flash }) {
             </button>
           </div>
 
-          <div ref={reportRef} className={`rounded-xl border ${t.border} ${t.panel} overflow-x-auto`}>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
-                  <th className="px-3 py-3 font-medium whitespace-nowrap">Nama Santri</th>
-                  {bulanList.map((b) => <th key={b} className="px-3 py-3 font-medium text-center">{b.slice(0, 3)}</th>)}
-                  <th className="px-3 py-3 font-medium text-right whitespace-nowrap">Total Dibayar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
-                  <tr><td colSpan={bulanList.length + 2} className={`px-4 py-8 text-center ${t.textMuted}`}>Tidak ada data</td></tr>
-                ) : rows.map((r) => (
-                  <tr key={r.id} className={`border-b ${t.border} last:border-0`}>
-                    <td className={`px-3 py-3 ${t.text} font-medium whitespace-nowrap`}>{r.nama}</td>
-                    {r.statusPerBulan.map((s, idx) => (
-                      <td key={idx} className="px-3 py-3 text-center">
-                        {s === "Lunas" ? <Badge tone="emerald">Lunas</Badge> : <Badge tone="red">Belum</Badge>}
-                      </td>
-                    ))}
-                    <td className={`px-3 py-3 ${t.text} font-medium text-right whitespace-nowrap`}>{formatRupiah(r.totalBayar)}</td>
+          <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+            <p className={`text-sm font-semibold mb-3 ${t.text}`}>Buku Kas SPP ({tahunAjaran} · {semester})</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">Tanggal</th>
+                    <th className="px-3 py-2 font-medium">Keterangan</th>
+                    <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Kas Masuk</th>
+                    <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Kas Keluar</th>
+                    <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Saldo</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {ledger.length === 0 ? (
+                    <tr><td colSpan={5} className={`px-3 py-6 text-center ${t.textMuted}`}>Belum ada transaksi pada periode ini</td></tr>
+                  ) : ledger.map((l, i) => (
+                    <tr key={i} className={`border-b ${t.border} last:border-0`}>
+                      <td className={`px-3 py-2 ${t.textMuted} whitespace-nowrap`}>{l.tanggal}</td>
+                      <td className={`px-3 py-2 ${t.text}`}>{l.keterangan}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap" style={{ color: l.masuk ? EMERALD : undefined }}>{l.masuk ? formatRupiah(l.masuk) : "-"}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap text-red-500">{l.keluar ? formatRupiah(l.keluar) : "-"}</td>
+                      <td className={`px-3 py-2 text-right whitespace-nowrap font-medium ${t.text}`}>{formatRupiah(l.saldo)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+            <p className={`text-sm font-semibold mb-3 ${t.text}`}>Daftar Santri Menunggak</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+                    <th className="px-3 py-2 font-medium">Nama Santri</th>
+                    <th className="px-3 py-2 font-medium">Kelas</th>
+                    <th className="px-3 py-2 font-medium">Bulan Belum Dibayar</th>
+                    <th className="px-3 py-2 font-medium text-right">Total Tunggakan</th>
+                    <th className="px-3 py-2 font-medium text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {santriMenunggak.length === 0 ? (
+                    <tr><td colSpan={5} className={`px-3 py-6 text-center ${t.textMuted}`}>🎉 Tidak ada santri yang menunggak pada periode ini</td></tr>
+                  ) : santriMenunggak.map((r) => (
+                    <tr key={r.id} className={`border-b ${t.border} last:border-0`}>
+                      <td className={`px-3 py-2 ${t.text} font-medium whitespace-nowrap`}>{r.nama}</td>
+                      <td className={`px-3 py-2 ${t.textMuted}`}>{r.level}</td>
+                      <td className={`px-3 py-2 ${t.textMuted}`}>{r.bulanBelumBayar.join(", ")}</td>
+                      <td className="px-3 py-2 text-right text-red-500 font-medium whitespace-nowrap">{formatRupiah(r.totalTunggakan)}</td>
+                      <td className="px-3 py-2 text-center"><Badge tone="red">Menunggak</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className={`text-[11px] mt-2 ${t.textMuted}`}>* Total Tunggakan bersifat estimasi, dihitung dari nominal pembayaran terakhir santri tersebut (default Rp100.000/bulan jika belum pernah membayar).</p>
           </div>
         </>
       )}
