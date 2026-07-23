@@ -31,21 +31,6 @@ const GOLD = "#c9a227";
 /* ---------------------------------- KONSTANTA LEVEL ---------------------------------- */
 const LEVELS = ["Level 1A", "Level 1B", "Level 2", "Level 3"];
 
-const weeklyAttendance = [
-  { hari: "Sen", guru: 92, siswa: 88 },
-  { hari: "Sel", guru: 95, siswa: 90 },
-  { hari: "Rab", guru: 88, siswa: 85 },
-  { hari: "Kam", guru: 97, siswa: 93 },
-  { hari: "Jum", guru: 90, siswa: 87 },
-  { hari: "Sab", guru: 94, siswa: 91 },
-];
-
-const hafalanStatus = [
-  { name: "Lancar", value: 62, color: EMERALD },
-  { name: "Mengulang", value: 24, color: GOLD },
-  { name: "Belum", value: 14, color: "#9ca3af" },
-];
-
 const roster = {
   "Super Admin": { name: "Admin Utama", icon: ShieldCheck },
   "Admin": { name: "Ustzh. Dewi Lestari", icon: User },
@@ -303,7 +288,7 @@ export default function MadaniApp() {
 
         {/* CONTENT */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          {page === "dashboard" && <Dashboard t={t} role={role} siswaList={siswaList} />}
+          {page === "dashboard" && <Dashboard t={t} dark={dark} role={role} siswaList={siswaList} settings={settings} />}
           {page === "guru" && <DataGuru t={t} flash={flash} />}
           {page === "siswa" && <DataSiswa t={t} siswaList={siswaList} setSiswaList={setSiswaList} flash={flash} />}
           {page === "absensiGuru" && <AbsensiGuru t={t} role={role} profileName={profileName} userId={userId} settings={settings} checkedIn={checkedIn} setCheckedIn={setCheckedIn} checkInTime={checkInTime} setCheckInTime={setCheckInTime} flash={flash} />}
@@ -372,80 +357,362 @@ function LoginScreen({ t, dark, setDark, onLoginSuccess }) {
 }
 
 /* ---------------------------------- DASHBOARD ---------------------------------- */
-function Dashboard({ t, role, siswaList }) {
-  const [jumlahGuru, setJumlahGuru] = useState(0);
+/* ---------------------------------- DASHBOARD ---------------------------------- */
+function predikatToScore(p) {
+  return { "Sangat Baik": 100, "Baik": 75, "Cukup": 50, "Perlu Bimbingan": 25 }[p] ?? 0;
+}
+function statusKelas(skor) {
+  if (skor >= 85) return "Sangat Baik";
+  if (skor >= 70) return "Baik";
+  if (skor >= 50) return "Cukup";
+  return "Perlu Pembinaan";
+}
+function statusKelasTone(s) {
+  return { "Sangat Baik": "emerald", "Baik": "blue", "Cukup": "amber", "Perlu Pembinaan": "red" }[s] || "gray";
+}
+
+function Dashboard({ t, dark, role, siswaList, settings }) {
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const weekStart = getWeekStart();
+  const jamMasukPatokan = (settings?.jam_masuk || "15:30").slice(0, 5);
+
   useEffect(() => {
-    const fetchJumlahGuru = async () => {
-      const { count } = await supabase.from("profiles").select("*", { count: "exact", head: true }).eq("aktif", true);
-      setJumlahGuru(count || 0);
+    let active = true;
+    const load = async () => {
+      setLoading(true);
+      const activeStudents = siswaList.filter((s) => s.aktif !== false);
+      const studentIds = activeStudents.map((s) => s.id);
+      const levelsWithStudents = LEVELS.filter((l) => activeStudents.some((s) => s.level === l));
+
+      const [
+        { data: profilesAll },
+        { data: attGuruToday },
+        { data: attGuruWeek },
+        { data: attSiswaToday },
+        { data: attSiswaWeek },
+        { data: nilaiWeek },
+        { data: hafalanWeek },
+        { data: recentAtt },
+        { data: recentAttSiswa },
+        { data: recentJurnal },
+        { data: recentNilai },
+        { data: recentHafalan },
+      ] = await Promise.all([
+        supabase.from("profiles").select("id,nama,role,aktif"),
+        supabase.from("teacher_attendance").select("*").eq("tanggal", today),
+        supabase.from("teacher_attendance").select("*, profiles(nama)").gte("tanggal", weekStart).lte("tanggal", today),
+        studentIds.length ? supabase.from("student_attendance").select("*").in("student_id", studentIds).eq("tanggal", today) : Promise.resolve({ data: [] }),
+        studentIds.length ? supabase.from("student_attendance").select("*").in("student_id", studentIds).gte("tanggal", weekStart).lte("tanggal", today) : Promise.resolve({ data: [] }),
+        supabase.from("weekly_assessment").select("*").eq("week_start", weekStart),
+        studentIds.length ? supabase.from("memorization_progress").select("*").in("student_id", studentIds).gte("tanggal", weekStart).lte("tanggal", today) : Promise.resolve({ data: [] }),
+        supabase.from("teacher_attendance").select("*, profiles(nama)").order("created_at", { ascending: false }).limit(5),
+        studentIds.length ? supabase.from("student_attendance").select("*, students(nama)").in("student_id", studentIds).order("created_at", { ascending: false }).limit(5) : Promise.resolve({ data: [] }),
+        supabase.from("teaching_journal").select("*, profiles(nama)").order("created_at", { ascending: false }).limit(5),
+        supabase.from("weekly_assessment").select("*, students(nama)").order("created_at", { ascending: false }).limit(5),
+        studentIds.length ? supabase.from("memorization_progress").select("*, students(nama)").in("student_id", studentIds).order("created_at", { ascending: false }).limit(5) : Promise.resolve({ data: [] }),
+      ]);
+
+      if (!active) return;
+
+      const guruAktif = (profilesAll || []).filter((p) => p.aktif);
+      const jumlahGuruAktif = guruAktif.length;
+      const jumlahSantriAktif = activeStudents.length;
+      const jumlahKelasAktif = levelsWithStudents.length;
+
+      // --- Ringkasan hari ini: Guru ---
+      const guruHadirIds = new Set((attGuruToday || []).map((r) => r.teacher_id));
+      const guruTerlambatHariIni = (attGuruToday || []).filter((r) => r.status === "Terlambat").length;
+      const guruHadirHariIni = (attGuruToday || []).filter((r) => r.status === "Hadir").length;
+      const guruTidakHadirHariIni = Math.max(0, jumlahGuruAktif - guruHadirIds.size);
+      const persenHadirGuru = jumlahGuruAktif ? Math.round(((guruHadirHariIni + guruTerlambatHariIni) / jumlahGuruAktif) * 100) : 0;
+
+      // --- Ringkasan hari ini: Santri ---
+      const santriHadirHariIni = (attSiswaToday || []).filter((r) => r.status === "Hadir").length;
+      const santriTerlambatHariIni = (attSiswaToday || []).filter((r) => r.status === "Hadir" && r.jam_tercatat && r.jam_tercatat > jamMasukPatokan).length;
+      const santriTercatatHariIni = new Set((attSiswaToday || []).map((r) => r.student_id));
+      const santriTidakHadirHariIni = (attSiswaToday || []).filter((r) => r.status !== "Hadir").length + Math.max(0, jumlahSantriAktif - santriTercatatHariIni.size);
+      const persenHadirSantri = jumlahSantriAktif ? Math.round((santriHadirHariIni / jumlahSantriAktif) * 100) : 0;
+
+      // --- Performa per kelas (minggu berjalan) ---
+      const performaKelas = levelsWithStudents.map((level) => {
+        const idsLevel = activeStudents.filter((s) => s.level === level).map((s) => s.id);
+        const attLevel = (attSiswaWeek || []).filter((r) => idsLevel.includes(r.student_id));
+        const hadirCount = attLevel.filter((r) => r.status === "Hadir").length;
+        const kehadiranPct = attLevel.length ? Math.round((hadirCount / attLevel.length) * 100) : 0;
+
+        const hafalanLevel = (hafalanWeek || []).filter((r) => idsLevel.includes(r.student_id));
+        const lancarCount = hafalanLevel.filter((r) => r.status === "Lancar").length;
+        const hafalanPct = hafalanLevel.length ? Math.round((lancarCount / hafalanLevel.length) * 100) : 0;
+
+        const nilaiLevel = (nilaiWeek || []).filter((r) => r.level === level);
+        const skorList = nilaiLevel.flatMap((r) => [predikatToScore(r.nilai_tahsin), predikatToScore(r.nilai_sikap), predikatToScore(r.nilai_tahfidz), predikatToScore(r.nilai_pembelajaran)]);
+        const nilaiPct = skorList.length ? Math.round(skorList.reduce((a, b) => a + b, 0) / skorList.length) : 0;
+
+        const skorAkhir = Math.round(kehadiranPct * 0.4 + hafalanPct * 0.3 + nilaiPct * 0.3);
+        return { level, jumlahSantri: idsLevel.length, kehadiranPct, hafalanPct, nilaiPct, skorAkhir, status: statusKelas(skorAkhir) };
+      }).sort((a, b) => b.skorAkhir - a.skorAkhir);
+
+      // --- Performa guru (minggu berjalan) ---
+      const performaGuru = guruAktif.filter((p) => p.role === "Guru" || p.role === "Admin" || p.role === "Super Admin").map((g) => {
+        const rows = (attGuruWeek || []).filter((r) => r.teacher_id === g.id);
+        const hadir = rows.filter((r) => r.status === "Hadir").length;
+        const terlambat = rows.filter((r) => r.status === "Terlambat").length;
+        const tidakHadir = Math.max(0, 6 - rows.length); // asumsi 6 hari kerja per minggu (Senin-Sabtu)
+        const totalTercatat = rows.length || 1;
+        const pct = Math.round(((hadir + terlambat) / totalTercatat) * 100);
+        return { nama: g.nama, hadir, terlambat, tidakHadir, pct };
+      });
+
+      // --- Performa santri per kelas (minggu berjalan, detail status) ---
+      const performaSantriKelas = levelsWithStudents.map((level) => {
+        const idsLevel = activeStudents.filter((s) => s.level === level).map((s) => s.id);
+        const rows = (attSiswaWeek || []).filter((r) => idsLevel.includes(r.student_id));
+        const hadir = rows.filter((r) => r.status === "Hadir").length;
+        const izin = rows.filter((r) => r.status === "Izin").length;
+        const sakit = rows.filter((r) => r.status === "Sakit").length;
+        const alpha = rows.filter((r) => r.status === "Alpha").length;
+        const terlambat = rows.filter((r) => r.status === "Hadir" && r.jam_tercatat && r.jam_tercatat > jamMasukPatokan).length;
+        const pct = rows.length ? Math.round((hadir / rows.length) * 100) : 0;
+        return { level, hadir, izin, sakit, alpha, terlambat, pct };
+      });
+
+      // --- Grafik kehadiran per hari (minggu berjalan) ---
+      const hariLabels = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+      const grafikGuru = hariLabels.map((label, idx) => {
+        const d = new Date(weekStart); d.setDate(d.getDate() + idx);
+        const iso = d.toISOString().slice(0, 10);
+        if (iso > today) return { hari: label, persen: null };
+        const rowsHari = (attGuruWeek || []).filter((r) => r.tanggal === iso);
+        const hadirHari = rowsHari.filter((r) => r.status === "Hadir" || r.status === "Terlambat").length;
+        return { hari: label, persen: jumlahGuruAktif ? Math.round((hadirHari / jumlahGuruAktif) * 100) : 0 };
+      });
+      const grafikSantri = hariLabels.map((label, idx) => {
+        const d = new Date(weekStart); d.setDate(d.getDate() + idx);
+        const iso = d.toISOString().slice(0, 10);
+        if (iso > today) return { hari: label, persen: null };
+        const rowsHari = (attSiswaWeek || []).filter((r) => r.tanggal === iso);
+        const hadirHari = rowsHari.filter((r) => r.status === "Hadir").length;
+        return { hari: label, persen: jumlahSantriAktif ? Math.round((hadirHari / jumlahSantriAktif) * 100) : 0 };
+      });
+
+      // --- Aktivitas terbaru gabungan ---
+      const aktivitas = [
+        ...(recentAtt || []).map((r) => ({ waktu: r.created_at, teks: `${r.profiles?.nama || "Guru"} melakukan absensi (${r.status})` })),
+        ...(recentAttSiswa || []).map((r) => ({ waktu: r.created_at, teks: `Absensi santri ${r.students?.nama || "-"} tercatat (${r.status})` })),
+        ...(recentJurnal || []).map((r) => ({ waktu: r.created_at, teks: `${r.profiles?.nama || "Guru"} mengisi Jurnal Pembelajaran ${r.level}` })),
+        ...(recentNilai || []).map((r) => ({ waktu: r.created_at, teks: `Penilaian mingguan diisi untuk ${r.students?.nama || "-"}` })),
+        ...(recentHafalan || []).map((r) => ({ waktu: r.created_at, teks: `Progress hafalan ${r.students?.nama || "-"} diperbarui (${r.surah || "-"})` })),
+      ].filter((a) => a.waktu).sort((a, b) => new Date(b.waktu) - new Date(a.waktu)).slice(0, 10);
+
+      setStats({
+        jumlahGuruAktif, jumlahSantriAktif, jumlahKelasAktif,
+        guruHadirHariIni, guruTidakHadirHariIni, guruTerlambatHariIni, persenHadirGuru,
+        santriHadirHariIni, santriTidakHadirHariIni, santriTerlambatHariIni, persenHadirSantri,
+        performaKelas, performaGuru, performaSantriKelas, grafikGuru, grafikSantri, aktivitas,
+      });
+      setLoading(false);
     };
-    fetchJumlahGuru();
+    load();
+    return () => { active = false; };
+  }, [siswaList, refreshTick, settings]);
+
+  // --- Realtime: refresh otomatis kalau ada perubahan data terkait ---
+  useEffect(() => {
+    const tables = ["teacher_attendance", "student_attendance", "weekly_assessment", "teaching_journal", "memorization_progress"];
+    const channel = supabase.channel("dashboard-realtime");
+    tables.forEach((tbl) => {
+      channel.on("postgres_changes", { event: "*", schema: "public", table: tbl }, () => {
+        setRefreshTick((x) => x + 1);
+      });
+    });
+    channel.subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const countByLevel = (lvl) => siswaList.filter((s) => s.level === lvl && s.aktif).length;
+  if (loading || !stats) {
+    return <div className="flex items-center justify-center py-20"><p className={`text-sm ${t.textMuted}`}>Memuat data dashboard...</p></div>;
+  }
+
+  const gridColor = dark ? "#1f2937" : "#e5e7eb";
+
   return (
     <div className="space-y-6">
+      {/* 1. RINGKASAN STATISTIK */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard t={t} label="Jumlah Guru" value={jumlahGuru} icon={Users} accent={EMERALD} />
-        <StatCard t={t} label="Siswa Level 1A" value={countByLevel("Level 1A")} icon={GraduationCap} accent={GOLD} />
-        <StatCard t={t} label="Siswa Level 1B" value={countByLevel("Level 1B")} icon={GraduationCap} accent={GOLD} />
-        <StatCard t={t} label="Siswa Level 2" value={countByLevel("Level 2")} icon={GraduationCap} accent={GOLD} />
-        <StatCard t={t} label="Siswa Level 3" value={countByLevel("Level 3")} icon={GraduationCap} accent={GOLD} />
-        <StatCard t={t} label="Guru Hadir Hari Ini" value="3 / 4" icon={CheckCircle2} accent={EMERALD} />
-        <StatCard t={t} label="Siswa Hadir Hari Ini" value="26 / 30" icon={CheckCircle2} accent={EMERALD} />
-        <StatCard t={t} label="Progress Hafalan" value="62%" icon={TrendingUp} accent={GOLD} />
+        <StatCard t={t} label="Guru Aktif" value={stats.jumlahGuruAktif} icon={Users} accent={EMERALD} />
+        <StatCard t={t} label="Santri Aktif" value={stats.jumlahSantriAktif} icon={GraduationCap} accent={GOLD} />
+        <StatCard t={t} label="Kelas Aktif" value={stats.jumlahKelasAktif} icon={BookOpen} accent={EMERALD} />
+        <StatCard t={t} label="% Kehadiran Guru Hari Ini" value={`${stats.persenHadirGuru}%`} icon={TrendingUp} accent={GOLD} />
+        <StatCard t={t} label="Guru Hadir Hari Ini" value={stats.guruHadirHariIni} icon={CheckCircle2} accent={EMERALD} />
+        <StatCard t={t} label="Guru Terlambat Hari Ini" value={stats.guruTerlambatHariIni} icon={Clock} accent={GOLD} />
+        <StatCard t={t} label="Guru Tidak Hadir Hari Ini" value={stats.guruTidakHadirHariIni} icon={X} accent="#ef4444" />
+        <StatCard t={t} label="% Kehadiran Santri Hari Ini" value={`${stats.persenHadirSantri}%`} icon={TrendingUp} accent={GOLD} />
+        <StatCard t={t} label="Santri Hadir Hari Ini" value={stats.santriHadirHariIni} icon={CheckCircle2} accent={EMERALD} />
+        <StatCard t={t} label="Santri Terlambat Hari Ini" value={stats.santriTerlambatHariIni} icon={Clock} accent={GOLD} />
+        <StatCard t={t} label="Santri Tidak Hadir Hari Ini" value={stats.santriTidakHadirHariIni} icon={X} accent="#ef4444" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={`lg:col-span-2 rounded-xl border ${t.border} ${t.panel} p-4`}>
-          <p className={`text-sm font-semibold mb-3 ${t.text}`}>Grafik Kehadiran Mingguan (%)</p>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={weeklyAttendance}>
-              <CartesianGrid strokeDasharray="3 3" stroke={t.border.includes("800") ? "#1f2937" : "#e5e7eb"} />
+      {/* 2 & 3. GRAFIK KEHADIRAN GURU & SANTRI */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+          <p className={`text-sm font-semibold mb-3 ${t.text}`}>Grafik Kehadiran Guru (% — Minggu Ini)</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={stats.grafikGuru}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
               <XAxis dataKey="hari" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
               <Tooltip />
-              <Legend />
-              <Bar dataKey="guru" name="Guru" fill={EMERALD} radius={[4, 4, 0, 0]} />
-              <Bar dataKey="siswa" name="Siswa" fill={GOLD} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="persen" name="% Hadir" fill={EMERALD} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
         <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
-          <p className={`text-sm font-semibold mb-3 ${t.text}`}>Progress Hafalan</p>
+          <p className={`text-sm font-semibold mb-3 ${t.text}`}>Grafik Kehadiran Santri (% — Minggu Ini)</p>
           <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={hafalanStatus} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={3}>
-                {hafalanStatus.map((e, i) => <Cell key={i} fill={e.color} />)}
-              </Pie>
+            <BarChart data={stats.grafikSantri}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="hari" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
               <Tooltip />
-            </PieChart>
+              <Bar dataKey="persen" name="% Hadir" fill={GOLD} radius={[4, 4, 0, 0]} />
+            </BarChart>
           </ResponsiveContainer>
-          <div className="flex justify-center gap-3 mt-1 flex-wrap">
-            {hafalanStatus.map((s) => (
-              <div key={s.name} className="flex items-center gap-1.5 text-xs">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} /> <span className={t.textMuted}>{s.name}</span>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 
+      {/* GRAFIK PERFORMA KELAS + PROGRESS HAFALAN */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+          <p className={`text-sm font-semibold mb-3 ${t.text}`}>Grafik Performa Setiap Kelas (Skor Gabungan)</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={stats.performaKelas}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="level" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
+              <Tooltip />
+              <Bar dataKey="skorAkhir" name="Skor" fill={EMERALD} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+          <p className={`text-sm font-semibold mb-3 ${t.text}`}>Grafik Progress Hafalan Setiap Kelas (%)</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={stats.performaKelas}>
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="level" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
+              <Tooltip />
+              <Bar dataKey="hafalanPct" name="% Lancar" fill={GOLD} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* 7. RANKING PERFORMA KELAS */}
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+        <p className={`text-sm font-semibold mb-3 ${t.text}`}>Ranking Performa Kelas (Minggu Ini)</p>
+        <p className={`text-[11px] mb-3 ${t.textMuted}`}>Skor = Kehadiran 40% + Progress Hafalan 30% + Nilai Mingguan 30%</p>
+        <div className="space-y-2">
+          {stats.performaKelas.length === 0 ? (
+            <p className={`text-sm ${t.textMuted}`}>Belum ada data siswa aktif.</p>
+          ) : stats.performaKelas.map((k, idx) => (
+            <div key={k.level} className={`flex items-center gap-3 rounded-lg border ${t.border} px-4 py-3`}>
+              <div className="h-8 w-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ backgroundColor: idx === 0 ? GOLD : EMERALD }}>#{idx + 1}</div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${t.text}`}>{k.level} <span className={`font-normal ${t.textMuted}`}>({k.jumlahSantri} santri)</span></p>
+                <p className={`text-xs ${t.textMuted}`}>Kehadiran {k.kehadiranPct}% · Hafalan {k.hafalanPct}% · Nilai {k.nilaiPct}%</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-lg font-bold" style={{ color: EMERALD }}>{k.skorAkhir}</p>
+                <Badge tone={statusKelasTone(k.status)}>{k.status}</Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* PERFORMA GURU */}
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4 overflow-x-auto`}>
+        <p className={`text-sm font-semibold mb-3 ${t.text}`}>Performa Kehadiran Guru (Minggu Ini)</p>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+              <th className="px-3 py-2 font-medium">Nama Guru</th>
+              <th className="px-3 py-2 font-medium text-center">Hadir</th>
+              <th className="px-3 py-2 font-medium text-center">Terlambat</th>
+              <th className="px-3 py-2 font-medium text-center">Tidak Hadir</th>
+              <th className="px-3 py-2 font-medium text-right">% Kehadiran</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.performaGuru.length === 0 ? (
+              <tr><td colSpan={5} className={`px-3 py-6 text-center ${t.textMuted}`}>Belum ada data guru</td></tr>
+            ) : stats.performaGuru.map((g, i) => (
+              <tr key={i} className={`border-b ${t.border} last:border-0`}>
+                <td className={`px-3 py-2 ${t.text} font-medium whitespace-nowrap`}>{g.nama}</td>
+                <td className={`px-3 py-2 ${t.textMuted} text-center`}>{g.hadir}</td>
+                <td className={`px-3 py-2 ${t.textMuted} text-center`}>{g.terlambat}</td>
+                <td className={`px-3 py-2 ${t.textMuted} text-center`}>{g.tidakHadir}</td>
+                <td className={`px-3 py-2 ${t.text} font-medium text-right`}>{g.pct}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* PERFORMA SANTRI PER KELAS */}
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4 overflow-x-auto`}>
+        <p className={`text-sm font-semibold mb-3 ${t.text}`}>Performa Kehadiran Santri per Kelas (Minggu Ini)</p>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+              <th className="px-3 py-2 font-medium">Kelas</th>
+              <th className="px-3 py-2 font-medium text-center">Hadir</th>
+              <th className="px-3 py-2 font-medium text-center">Izin</th>
+              <th className="px-3 py-2 font-medium text-center">Sakit</th>
+              <th className="px-3 py-2 font-medium text-center">Alpha</th>
+              <th className="px-3 py-2 font-medium text-center">Terlambat</th>
+              <th className="px-3 py-2 font-medium text-right">% Kehadiran</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.performaSantriKelas.length === 0 ? (
+              <tr><td colSpan={7} className={`px-3 py-6 text-center ${t.textMuted}`}>Belum ada data santri</td></tr>
+            ) : stats.performaSantriKelas.map((k) => (
+              <tr key={k.level} className={`border-b ${t.border} last:border-0`}>
+                <td className={`px-3 py-2 ${t.text} font-medium whitespace-nowrap`}>{k.level}</td>
+                <td className={`px-3 py-2 ${t.textMuted} text-center`}>{k.hadir}</td>
+                <td className={`px-3 py-2 ${t.textMuted} text-center`}>{k.izin}</td>
+                <td className={`px-3 py-2 ${t.textMuted} text-center`}>{k.sakit}</td>
+                <td className={`px-3 py-2 ${t.textMuted} text-center`}>{k.alpha}</td>
+                <td className={`px-3 py-2 ${t.textMuted} text-center`}>{k.terlambat}</td>
+                <td className={`px-3 py-2 ${t.text} font-medium text-right`}>{k.pct}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 8. AKTIVITAS TERBARU */}
       <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
         <p className={`text-sm font-semibold mb-3 ${t.text}`}>Aktivitas Terbaru</p>
-        <ul className="space-y-3">
-          {[
-            { who: "Ust. Ahmad Fauzi", what: "melakukan check-in absensi", when: "15:32" },
-            { who: "Ustzh. Siti Nurhaliza", what: "mengisi Catatan Harian Level 1", when: "16:10" },
-            { who: "Ust. Rizky Ramadhan", what: "mengisi progress hafalan Umar Faruq", when: "16:22" },
-          ].map((a, i) => (
-            <li key={i} className="flex items-center gap-3 text-sm">
-              <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: EMERALD }} />
-              <span className={t.text}><b>{a.who}</b> {a.what}</span>
-              <span className={`ml-auto text-xs ${t.textMuted}`}>{a.when}</span>
-            </li>
-          ))}
-        </ul>
+        {stats.aktivitas.length === 0 ? (
+          <p className={`text-sm ${t.textMuted}`}>Belum ada aktivitas tercatat.</p>
+        ) : (
+          <ul className="space-y-3">
+            {stats.aktivitas.map((a, i) => (
+              <li key={i} className="flex items-center gap-3 text-sm">
+                <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: EMERALD }} />
+                <span className={`${t.text} min-w-0 truncate`}>{a.teks}</span>
+                <span className={`ml-auto text-xs ${t.textMuted} shrink-0`}>{new Date(a.waktu).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
