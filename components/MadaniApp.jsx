@@ -296,7 +296,7 @@ export default function MadaniApp() {
           {page === "pembelajaran" && <JurnalPembelajaran t={t} checkedIn={checkedIn} role={role} userId={userId} profileName={profileName} flash={flash} />}
           {page === "penilaian" && <PenilaianMingguan t={t} checkedIn={checkedIn} role={role} userId={userId} siswaList={siswaList} flash={flash} />}
           {page === "rekap" && <RekapLaporan t={t} dark={dark} siswaList={siswaList} settings={settings} flash={flash} />}
-          {page === "spp" && <RekapSPP t={t} siswaList={siswaList} userId={userId} flash={flash} />}
+          {page === "spp" && <RekapSPP t={t} siswaList={siswaList} userId={userId} profileName={profileName} flash={flash} />}
           {page === "pengaturan" && <Pengaturan t={t} settings={settings} setSettings={setSettings} flash={flash} />}
           {page === "profil" && <Profil t={t} role={role} profileName={profileName} userId={userId} fotoUrl={profileFotoUrl} setFotoUrl={setProfileFotoUrl} flash={flash} />}
         </main>
@@ -2343,7 +2343,15 @@ function jatuhTempoISO(num, tahun) {
   return `${y}-${String(m).padStart(2, "0")}-01`;
 }
 
-function RekapSPP({ t, siswaList, userId, flash }) {
+async function logAuditSPP(userId, profileName, aksi, jenis, deskripsi) {
+  await supabase.from("spp_audit_log").insert({
+    aksi, jenis, deskripsi, performed_by: userId, performed_by_name: profileName || "-",
+  });
+}
+
+const METODE_PEMBAYARAN = ["Tunai", "Transfer Bank", "E-Wallet", "Lainnya"];
+
+function RekapSPP({ t, siswaList, userId, profileName, flash }) {
   const [tab, setTab] = useState("input");
   const activeStudents = siswaList.filter((s) => s.aktif !== false);
 
@@ -2361,26 +2369,30 @@ function RekapSPP({ t, siswaList, userId, flash }) {
           </button>
         ))}
       </div>
-      {tab === "input" && <SPPInput t={t} siswaList={activeStudents} userId={userId} flash={flash} />}
-      {tab === "pengeluaran" && <SPPPengeluaran t={t} userId={userId} flash={flash} />}
+      {tab === "input" && <SPPInput t={t} siswaList={activeStudents} userId={userId} profileName={profileName} flash={flash} />}
+      {tab === "pengeluaran" && <SPPPengeluaran t={t} userId={userId} profileName={profileName} flash={flash} />}
       {tab === "rekap" && <SPPRekap t={t} siswaList={activeStudents} flash={flash} />}
     </div>
   );
 }
 
 /* ---------- TAB: INPUT PEMBAYARAN ---------- */
-function SPPInput({ t, siswaList, userId, flash }) {
+function SPPInput({ t, siswaList, userId, profileName, flash }) {
   const [studentId, setStudentId] = useState("");
   const [tahunAjaran, setTahunAjaran] = useState(defaultTahunAjaran());
   const [semester, setSemester] = useState("Semester 1");
   const [nominal, setNominal] = useState(100000);
   const [tanggalBayar, setTanggalBayar] = useState(new Date().toISOString().slice(0, 10));
+  const [metodePembayaran, setMetodePembayaran] = useState("Tunai");
   const [keterangan, setKeterangan] = useState("");
   const [selectedBulan, setSelectedBulan] = useState([]);
   const [statusMap, setStatusMap] = useState({});
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [saving, setSaving] = useState(false);
   const [riwayat, setRiwayat] = useState([]);
+  const [semuaTransaksi, setSemuaTransaksi] = useState([]);
+  const [loadingSemua, setLoadingSemua] = useState(true);
+  const [editTrx, setEditTrx] = useState(null);
 
   const bulanList = SEMESTER_BULAN[semester];
 
@@ -2398,7 +2410,15 @@ function SPPInput({ t, siswaList, userId, flash }) {
     setLoadingStatus(false);
   };
 
+  const fetchSemuaTransaksi = async () => {
+    setLoadingSemua(true);
+    const { data } = await supabase.from("spp_transactions").select("*, students(nama)").order("created_at", { ascending: false }).limit(20);
+    setSemuaTransaksi(data || []);
+    setLoadingSemua(false);
+  };
+
   useEffect(() => { fetchStatus(); }, [studentId, tahunAjaran, semester]);
+  useEffect(() => { fetchSemuaTransaksi(); }, []);
 
   const toggleBulan = (b) => {
     if (statusMap[b]?.status === "Lunas") return;
@@ -2421,10 +2441,12 @@ function SPPInput({ t, siswaList, userId, flash }) {
       return;
     }
 
+    const namaSantri = siswaList.find((s) => String(s.id) === String(studentId))?.nama || "-";
+
     const { data: trxData, error: trxError } = await supabase.from("spp_transactions").insert({
       student_id: studentId, tahun_ajaran: tahunAjaran, semester, bulan_list: selectedBulan,
       nominal_per_bulan: nominal, total_bayar: total, tanggal_bayar: tanggalBayar,
-      keterangan: keterangan || null, created_by: userId,
+      metode_pembayaran: metodePembayaran, keterangan: keterangan || null, created_by: userId,
     }).select().single();
 
     if (trxError) { flash("Gagal menyimpan transaksi: " + trxError.message, "error"); setSaving(false); return; }
@@ -2438,19 +2460,30 @@ function SPPInput({ t, siswaList, userId, flash }) {
     setSaving(false);
     if (statusError) { flash("Gagal memperbarui status: " + statusError.message, "error"); return; }
 
+    await logAuditSPP(userId, profileName, "Tambah", "Pembayaran", `Pembayaran ${namaSantri} — ${selectedBulan.join(", ")} (${formatRupiah(total)})`);
+
     flash(`Pembayaran ${selectedBulan.length} bulan berhasil disimpan (${formatRupiah(total)})`);
     setKeterangan("");
     fetchStatus();
+    fetchSemuaTransaksi();
   };
 
   const hapusTransaksi = async (trx) => {
-    if (!window.confirm(`Hapus transaksi pembayaran ${trx.bulan_list.join(", ")} (${formatRupiah(trx.total_bayar)})? Status bulan terkait akan kembali menjadi Belum Bayar.`)) return;
+    if (!window.confirm("Apakah Anda yakin ingin menghapus data ini? Tindakan ini akan memperbarui seluruh rekap SPP secara otomatis.")) return;
     const { error: delErr } = await supabase.from("spp_transactions").delete().eq("id", trx.id);
     if (delErr) { flash("Gagal menghapus: " + delErr.message, "error"); return; }
     await supabase.from("spp_status").update({ status: "Belum Bayar", nominal: 0, tanggal_bayar: null, transaction_id: null })
       .eq("student_id", trx.student_id).eq("tahun_ajaran", trx.tahun_ajaran).eq("semester", trx.semester).in("bulan", trx.bulan_list);
+    await logAuditSPP(userId, profileName, "Hapus", "Pembayaran", `Hapus pembayaran ${trx.students?.nama || ""} — ${trx.bulan_list.join(", ")} (${formatRupiah(trx.total_bayar)})`);
     flash("Transaksi dihapus, status bulan dikembalikan ke Belum Bayar", "error");
     fetchStatus();
+    fetchSemuaTransaksi();
+  };
+
+  const refreshAfterEdit = () => {
+    setEditTrx(null);
+    fetchStatus();
+    fetchSemuaTransaksi();
   };
 
   return (
@@ -2518,6 +2551,11 @@ function SPPInput({ t, siswaList, userId, flash }) {
               <Field t={t} label="Tanggal Bayar">
                 <input type="date" value={tanggalBayar} onChange={(e) => setTanggalBayar(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
               </Field>
+              <Field t={t} label="Metode Pembayaran">
+                <select value={metodePembayaran} onChange={(e) => setMetodePembayaran(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+                  {METODE_PEMBAYARAN.map((m) => <option key={m}>{m}</option>)}
+                </select>
+              </Field>
             </div>
             <Field t={t} label="Keterangan (opsional)">
               <textarea value={keterangan} onChange={(e) => setKeterangan(e.target.value)} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
@@ -2541,21 +2579,206 @@ function SPPInput({ t, siswaList, userId, flash }) {
                 <div key={r.id} className={`flex items-center justify-between rounded-lg border ${t.border} px-3 py-2`}>
                   <div>
                     <p className={`text-sm font-medium ${t.text}`}>{r.bulan_list.join(", ")} · {r.tahun_ajaran} {r.semester}</p>
-                    <p className={`text-xs ${t.textMuted}`}>{r.tanggal_bayar} · {formatRupiah(r.total_bayar)}{r.keterangan ? ` · ${r.keterangan}` : ""}</p>
+                    <p className={`text-xs ${t.textMuted}`}>{r.tanggal_bayar} · {formatRupiah(r.total_bayar)}{r.metode_pembayaran ? ` · ${r.metode_pembayaran}` : ""}{r.keterangan ? ` · ${r.keterangan}` : ""}</p>
                   </div>
-                  <button onClick={() => hapusTransaksi(r)} className="p-1.5 rounded-md hover:bg-red-50 shrink-0"><Trash2 size={14} className="text-red-500" /></button>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => setEditTrx(r)} className="p-1.5 rounded-md hover:bg-gray-100"><Pencil size={14} className={t.textMuted} /></button>
+                    <button onClick={() => hapusTransaksi(r)} className="p-1.5 rounded-md hover:bg-red-50"><Trash2 size={14} className="text-red-500" /></button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
       )}
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+        <p className={`text-sm font-semibold mb-3 ${t.text}`}>Riwayat Transaksi Terbaru (Semua Santri)</p>
+        {loadingSemua ? (
+          <p className={`text-sm ${t.textMuted}`}>Memuat...</p>
+        ) : semuaTransaksi.length === 0 ? (
+          <p className={`text-sm ${t.textMuted}`}>Belum ada transaksi pembayaran.</p>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {semuaTransaksi.map((r) => (
+              <div key={r.id} className={`flex items-center justify-between rounded-lg border ${t.border} px-3 py-2`}>
+                <div className="min-w-0">
+                  <p className={`text-sm font-medium ${t.text} truncate`}>{r.students?.nama || "-"} — {r.bulan_list.join(", ")}</p>
+                  <p className={`text-xs ${t.textMuted} truncate`}>{r.tanggal_bayar} · {r.tahun_ajaran} {r.semester} · {formatRupiah(r.total_bayar)}{r.metode_pembayaran ? ` · ${r.metode_pembayaran}` : ""}</p>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => setEditTrx(r)} className="p-1.5 rounded-md hover:bg-gray-100"><Pencil size={14} className={t.textMuted} /></button>
+                  <button onClick={() => hapusTransaksi(r)} className="p-1.5 rounded-md hover:bg-red-50"><Trash2 size={14} className="text-red-500" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {editTrx && (
+        <EditTransaksiModal t={t} trx={editTrx} siswaList={siswaList} userId={userId} profileName={profileName} flash={flash}
+          onClose={() => setEditTrx(null)} onSaved={refreshAfterEdit} />
+      )}
     </div>
   );
 }
 
-/* ---------- TAB: PENGGUNAAN UANG SPP (KAS KELUAR) ---------- */
-function SPPPengeluaran({ t, userId, flash }) {
+function EditTransaksiModal({ t, trx, siswaList, userId, profileName, flash, onClose, onSaved }) {
+  const [studentId, setStudentId] = useState(trx.student_id);
+  const [tahunAjaran, setTahunAjaran] = useState(trx.tahun_ajaran);
+  const [semester, setSemester] = useState(trx.semester);
+  const [selectedBulan, setSelectedBulan] = useState(trx.bulan_list);
+  const [nominal, setNominal] = useState(trx.nominal_per_bulan);
+  const [tanggalBayar, setTanggalBayar] = useState(trx.tanggal_bayar);
+  const [metodePembayaran, setMetodePembayaran] = useState(trx.metode_pembayaran || "Tunai");
+  const [keterangan, setKeterangan] = useState(trx.keterangan || "");
+  const [statusMap, setStatusMap] = useState({});
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const bulanList = SEMESTER_BULAN[semester] || [];
+
+  const fetchStatus = async () => {
+    setLoadingStatus(true);
+    const { data } = await supabase.from("spp_status").select("*").eq("student_id", studentId).eq("tahun_ajaran", tahunAjaran).eq("semester", semester);
+    const map = {};
+    (data || []).forEach((r) => { map[r.bulan] = r; });
+    setStatusMap(map);
+    setLoadingStatus(false);
+  };
+  useEffect(() => { fetchStatus(); }, [studentId, tahunAjaran, semester]);
+
+  const toggleBulan = (b) => {
+    // boleh pilih bulan yang statusnya Lunas TAPI itu milik transaksi ini sendiri
+    const st = statusMap[b];
+    if (st?.status === "Lunas" && st.transaction_id !== trx.id) return; // sudah lunas oleh transaksi lain, tidak boleh
+    setSelectedBulan((prev) => prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]);
+  };
+
+  const total = selectedBulan.length * nominal;
+
+  const simpanEdit = async () => {
+    if (selectedBulan.length === 0) { flash("Pilih minimal 1 bulan", "error"); return; }
+    setSaving(true);
+
+    // 1) Kembalikan status bulan lama milik transaksi ini ke Belum Bayar
+    await supabase.from("spp_status").update({ status: "Belum Bayar", nominal: 0, tanggal_bayar: null, transaction_id: null })
+      .eq("transaction_id", trx.id);
+
+    // 2) Pastikan bulan baru yang dipilih tidak bentrok dengan transaksi lain
+    const { data: cekUlang } = await supabase.from("spp_status").select("bulan,status,transaction_id").eq("student_id", studentId).eq("tahun_ajaran", tahunAjaran).eq("semester", semester).in("bulan", selectedBulan);
+    const bentrok = (cekUlang || []).filter((r) => r.status === "Lunas" && r.transaction_id !== trx.id).map((r) => r.bulan);
+    if (bentrok.length > 0) {
+      flash(`Bulan ${bentrok.join(", ")} sudah Lunas oleh transaksi lain`, "error");
+      setSaving(false);
+      // kembalikan status semula supaya tidak nyangkut kosong
+      const rows = trx.bulan_list.map((b) => ({ student_id: trx.student_id, tahun_ajaran: trx.tahun_ajaran, semester: trx.semester, bulan: b, status: "Lunas", nominal: trx.nominal_per_bulan, tanggal_bayar: trx.tanggal_bayar, transaction_id: trx.id }));
+      await supabase.from("spp_status").upsert(rows, { onConflict: "student_id,tahun_ajaran,semester,bulan" });
+      return;
+    }
+
+    // 3) Update transaksi
+    const { error: updErr } = await supabase.from("spp_transactions").update({
+      student_id: studentId, tahun_ajaran: tahunAjaran, semester, bulan_list: selectedBulan,
+      nominal_per_bulan: nominal, total_bayar: total, tanggal_bayar: tanggalBayar,
+      metode_pembayaran: metodePembayaran, keterangan: keterangan || null,
+    }).eq("id", trx.id);
+
+    if (updErr) { flash("Gagal menyimpan perubahan: " + updErr.message, "error"); setSaving(false); return; }
+
+    // 4) Set status bulan baru jadi Lunas
+    const statusRows = selectedBulan.map((b) => ({
+      student_id: studentId, tahun_ajaran: tahunAjaran, semester, bulan: b,
+      status: "Lunas", nominal, tanggal_bayar: tanggalBayar, transaction_id: trx.id,
+    }));
+    await supabase.from("spp_status").upsert(statusRows, { onConflict: "student_id,tahun_ajaran,semester,bulan" });
+
+    const namaSantri = siswaList.find((s) => String(s.id) === String(studentId))?.nama || "-";
+    await logAuditSPP(userId, profileName, "Edit", "Pembayaran", `Edit pembayaran ${namaSantri} — ${selectedBulan.join(", ")} (${formatRupiah(total)})`);
+
+    setSaving(false);
+    flash("Perubahan pembayaran tersimpan");
+    onSaved();
+  };
+
+  return (
+    <Modal t={t} title="Edit Pembayaran SPP" onClose={onClose} wide>
+      <Field t={t} label="Nama Santri">
+        <select value={studentId} onChange={(e) => setStudentId(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+          {siswaList.map((s) => <option key={s.id} value={s.id}>{s.nama} — {s.level}</option>)}
+        </select>
+      </Field>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field t={t} label="Tahun Ajaran">
+          <input value={tahunAjaran} onChange={(e) => setTahunAjaran(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <Field t={t} label="Semester">
+          <select value={semester} onChange={(e) => setSemester(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            <option>Semester 1</option><option>Semester 2</option>
+          </select>
+        </Field>
+      </div>
+
+      <Field t={t} label="Bulan Pembayaran">
+        {loadingStatus ? <p className={`text-xs ${t.textMuted}`}>Memuat...</p> : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {bulanList.map((b) => {
+              const st = statusMap[b];
+              const lunasOrangLain = st?.status === "Lunas" && st.transaction_id !== trx.id;
+              const checked = selectedBulan.includes(b);
+              return (
+                <button key={b} type="button" onClick={() => toggleBulan(b)} disabled={lunasOrangLain}
+                  className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium ${lunasOrangLain ? "opacity-60 cursor-not-allowed" : "cursor-pointer"} ${checked ? "text-white border-transparent" : `${t.text} ${t.border}`}`}
+                  style={checked ? { backgroundColor: EMERALD } : {}}>
+                  {b}
+                  {lunasOrangLain ? <Badge tone="gray">Lunas Lain</Badge> : checked ? <CheckCircle2 size={14} /> : null}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Field>
+
+      <Field t={t} label="Nominal per Bulan">
+        <div className="flex gap-2">
+          {NOMINAL_OPTIONS.map((n) => (
+            <button key={n} type="button" onClick={() => setNominal(n)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border ${nominal === n ? "text-white border-transparent" : `${t.text} ${t.border}`}`}
+              style={nominal === n ? { backgroundColor: EMERALD } : {}}>
+              {formatRupiah(n)}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <div className={`rounded-lg px-4 py-3 flex items-center justify-between mb-3 ${t.panelAlt}`}>
+        <span className={`text-sm ${t.textMuted}`}>Total ({selectedBulan.length} bulan)</span>
+        <span className="text-lg font-bold" style={{ color: EMERALD }}>{formatRupiah(total)}</span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field t={t} label="Tanggal Bayar">
+          <input type="date" value={tanggalBayar} onChange={(e) => setTanggalBayar(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <Field t={t} label="Metode Pembayaran">
+          <select value={metodePembayaran} onChange={(e) => setMetodePembayaran(e.target.value)} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`}>
+            {METODE_PEMBAYARAN.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field t={t} label="Keterangan">
+        <textarea value={keterangan} onChange={(e) => setKeterangan(e.target.value)} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+      </Field>
+
+      <button onClick={simpanEdit} disabled={saving} className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+        {saving ? "Menyimpan..." : "Simpan Perubahan"}
+      </button>
+    </Modal>
+  );
+}
+
+function SPPPengeluaran({ t, userId, profileName, flash }) {
   const [form, setForm] = useState({
     tanggal: new Date().toISOString().slice(0, 10), kategori: "", deskripsi: "",
     nominal: "", penanggung_jawab: "", keterangan: "",
@@ -2563,6 +2786,7 @@ function SPPPengeluaran({ t, userId, flash }) {
   const [saving, setSaving] = useState(false);
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [editItem, setEditItem] = useState(null);
 
   const fetchList = async () => {
     setLoading(true);
@@ -2583,15 +2807,17 @@ function SPPPengeluaran({ t, userId, flash }) {
     });
     setSaving(false);
     if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    await logAuditSPP(userId, profileName, "Tambah", "Pengeluaran", `${form.kategori} — ${formatRupiah(form.nominal)}`);
     flash("Pengeluaran berhasil dicatat (Kas Keluar)");
     setForm({ tanggal: new Date().toISOString().slice(0, 10), kategori: "", deskripsi: "", nominal: "", penanggung_jawab: "", keterangan: "" });
     fetchList();
   };
 
-  const hapus = async (id) => {
-    if (!window.confirm("Hapus catatan pengeluaran ini?")) return;
-    const { error } = await supabase.from("spp_expenses").delete().eq("id", id);
+  const hapus = async (item) => {
+    if (!window.confirm("Apakah Anda yakin ingin menghapus data ini? Tindakan ini akan memperbarui seluruh rekap SPP secara otomatis.")) return;
+    const { error } = await supabase.from("spp_expenses").delete().eq("id", item.id);
     if (error) { flash("Gagal menghapus: " + error.message, "error"); return; }
+    await logAuditSPP(userId, profileName, "Hapus", "Pengeluaran", `${item.kategori} — ${formatRupiah(item.nominal)}`);
     flash("Pengeluaran dihapus", "error");
     fetchList();
   };
@@ -2645,13 +2871,77 @@ function SPPPengeluaran({ t, userId, flash }) {
                   <p className={`text-sm font-medium ${t.text} truncate`}>{e.kategori} — {formatRupiah(e.nominal)}</p>
                   <p className={`text-xs ${t.textMuted} truncate`}>{e.tanggal}{e.deskripsi ? ` · ${e.deskripsi}` : ""}{e.penanggung_jawab ? ` · PJ: ${e.penanggung_jawab}` : ""}</p>
                 </div>
-                <button onClick={() => hapus(e.id)} className="p-1.5 rounded-md hover:bg-red-50 shrink-0"><Trash2 size={14} className="text-red-500" /></button>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => setEditItem(e)} className="p-1.5 rounded-md hover:bg-gray-100"><Pencil size={14} className={t.textMuted} /></button>
+                  <button onClick={() => hapus(e)} className="p-1.5 rounded-md hover:bg-red-50"><Trash2 size={14} className="text-red-500" /></button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {editItem && (
+        <EditPengeluaranModal t={t} item={editItem} userId={userId} profileName={profileName} flash={flash}
+          onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); fetchList(); }} />
+      )}
     </div>
+  );
+}
+
+function EditPengeluaranModal({ t, item, userId, profileName, flash, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    tanggal: item.tanggal, kategori: item.kategori, deskripsi: item.deskripsi || "",
+    nominal: item.nominal, penanggung_jawab: item.penanggung_jawab || "", keterangan: item.keterangan || "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const simpan = async () => {
+    if (!form.kategori.trim()) { flash("Nama/Kategori pengeluaran wajib diisi", "error"); return; }
+    if (!form.nominal || Number(form.nominal) <= 0) { flash("Nominal pengeluaran wajib diisi", "error"); return; }
+    setSaving(true);
+    const { error } = await supabase.from("spp_expenses").update({
+      tanggal: form.tanggal, kategori: form.kategori, deskripsi: form.deskripsi || null,
+      nominal: Number(form.nominal), penanggung_jawab: form.penanggung_jawab || null, keterangan: form.keterangan || null,
+    }).eq("id", item.id);
+    setSaving(false);
+    if (error) { flash("Gagal menyimpan: " + error.message, "error"); return; }
+    await logAuditSPP(userId, profileName, "Edit", "Pengeluaran", `${form.kategori} — ${formatRupiah(form.nominal)}`);
+    flash("Perubahan pengeluaran tersimpan");
+    onSaved();
+  };
+
+  return (
+    <Modal t={t} title="Edit Pengeluaran SPP" onClose={onClose}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field t={t} label="Tanggal Pengeluaran">
+          <input type="date" value={form.tanggal} onChange={(e) => setForm({ ...form, tanggal: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <Field t={t} label="Kategori">
+          <input list="kategori-list-edit" value={form.kategori} onChange={(e) => setForm({ ...form, kategori: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+          <datalist id="kategori-list-edit">
+            {KATEGORI_PENGELUARAN.map((k) => <option key={k} value={k} />)}
+          </datalist>
+        </Field>
+      </div>
+      <Field t={t} label="Deskripsi / Keperluan">
+        <textarea value={form.deskripsi} onChange={(e) => setForm({ ...form, deskripsi: e.target.value })} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+      </Field>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field t={t} label="Nominal">
+          <input type="number" value={form.nominal} onChange={(e) => setForm({ ...form, nominal: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+        <Field t={t} label="Penanggung Jawab">
+          <input value={form.penanggung_jawab} onChange={(e) => setForm({ ...form, penanggung_jawab: e.target.value })} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+        </Field>
+      </div>
+      <Field t={t} label="Keterangan">
+        <textarea value={form.keterangan} onChange={(e) => setForm({ ...form, keterangan: e.target.value })} rows={2} className={`w-full rounded-lg border px-3 py-2 text-sm ${t.input}`} />
+      </Field>
+      <button onClick={simpan} disabled={saving} className="w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: EMERALD }}>
+        {saving ? "Menyimpan..." : "Simpan Perubahan"}
+      </button>
+    </Modal>
   );
 }
 
@@ -2667,6 +2957,18 @@ function SPPRekap({ t, siswaList, flash }) {
   const [totalMasuk, setTotalMasuk] = useState(0);
   const [totalKeluar, setTotalKeluar] = useState(0);
   const [rows, setRows] = useState([]);
+  const [auditLog, setAuditLog] = useState([]);
+  const [loadingAudit, setLoadingAudit] = useState(true);
+
+  useEffect(() => {
+    const fetchAudit = async () => {
+      setLoadingAudit(true);
+      const { data } = await supabase.from("spp_audit_log").select("*").order("created_at", { ascending: false }).limit(20);
+      setAuditLog(data || []);
+      setLoadingAudit(false);
+    };
+    fetchAudit();
+  }, []);
 
   const bulanList = SEMESTER_BULAN[semester];
   const students = siswaList.filter((s) => level === "Semua" || s.level === level);
@@ -2894,6 +3196,41 @@ function SPPRekap({ t, siswaList, flash }) {
           </div>
         </>
       )}
+
+      <div className={`rounded-xl border ${t.border} ${t.panel} p-4`}>
+        <p className={`text-sm font-semibold mb-1 ${t.text}`}>Riwayat Perubahan (Audit Log)</p>
+        <p className={`text-xs mb-3 ${t.textMuted}`}>Mencatat setiap Edit/Hapus pada Pembayaran & Pengeluaran SPP, untuk transparansi dan jejak audit.</p>
+        {loadingAudit ? (
+          <p className={`text-sm ${t.textMuted}`}>Memuat...</p>
+        ) : auditLog.length === 0 ? (
+          <p className={`text-sm ${t.textMuted}`}>Belum ada riwayat perubahan.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className={`text-left ${t.textMuted} border-b ${t.border}`}>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">Waktu</th>
+                  <th className="px-3 py-2 font-medium">Pengguna</th>
+                  <th className="px-3 py-2 font-medium">Aksi</th>
+                  <th className="px-3 py-2 font-medium">Jenis</th>
+                  <th className="px-3 py-2 font-medium">Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditLog.map((a) => (
+                  <tr key={a.id} className={`border-b ${t.border} last:border-0`}>
+                    <td className={`px-3 py-2 ${t.textMuted} whitespace-nowrap`}>{new Date(a.created_at).toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+                    <td className={`px-3 py-2 ${t.text} font-medium whitespace-nowrap`}>{a.performed_by_name}</td>
+                    <td className="px-3 py-2"><Badge tone={a.aksi === "Hapus" ? "red" : a.aksi === "Edit" ? "amber" : "emerald"}>{a.aksi}</Badge></td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{a.jenis}</td>
+                    <td className={`px-3 py-2 ${t.textMuted}`}>{a.deskripsi}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
